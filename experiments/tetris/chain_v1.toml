@@ -1,0 +1,20 @@
+[experiment]
+name = "tetris_chain_v1"
+method = "chain"
+
+[environment]
+env = "tetris"
+actions = ["left", "right", "rotate", "down"]
+default = "noop"
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 15
+top_k = 20
+max_iters = 3
+cegar_rounds = 2
+max_steps = 2000
+
+[validation]
+val_episodes = 500

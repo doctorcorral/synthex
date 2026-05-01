@@ -1,0 +1,20 @@
+[experiment]
+name = "lunarlander_chain_d1"
+method = "chain"
+
+[environment]
+env = "lunarlander"
+actions = ["fire_left", "fire_right", "fire_main"]
+default = "do_nothing"
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 200
+top_k = 30
+max_iters = 5
+cegar_rounds = 3
+max_steps = 1000
+
+[validation]
+val_episodes = 500

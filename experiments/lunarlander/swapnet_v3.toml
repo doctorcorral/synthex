@@ -1,0 +1,14 @@
+[experiment]
+name = "lunarlander_swapnet_v3"
+method = "swapnet"
+
+[environment]
+env = "lunarlander"
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 80
+top_k = 30
+max_iters = 8
+cegar_rounds = 5

@@ -1,0 +1,19 @@
+[experiment]
+name = "pong_ranking"
+method = "ranking"
+
+[environment]
+env = "pong"
+actions = ["up", "noop", "down"]
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 20
+top_k = 20
+max_iters = 3
+cegar_rounds = 3
+max_steps = 10000
+
+[validation]
+val_episodes = 100

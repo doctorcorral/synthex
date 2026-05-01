@@ -1,0 +1,20 @@
+[experiment]
+name = "pendulum_chain"
+method = "chain"
+
+[environment]
+env = "pendulum"
+actions = ["torque_neg", "torque_pos"]
+default = "no_torque"
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 200
+top_k = 30
+max_iters = 5
+cegar_rounds = 3
+max_steps = 500
+
+[validation]
+val_episodes = 500

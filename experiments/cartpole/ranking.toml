@@ -1,0 +1,19 @@
+[experiment]
+name = "cartpole_ranking"
+method = "ranking"
+
+[environment]
+env = "cartpole"
+actions = ["left", "right"]
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 20
+top_k = 15
+max_iters = 3
+cegar_rounds = 2
+max_steps = 500
+
+[validation]
+val_episodes = 200

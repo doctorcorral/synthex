@@ -1,0 +1,19 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+synthex-*.tar
+/tmp/
+
+# Experiment results (large, machine-specific)
+/results/*/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store

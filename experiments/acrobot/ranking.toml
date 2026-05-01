@@ -1,0 +1,19 @@
+[experiment]
+name = "acrobot_ranking"
+method = "ranking"
+
+[environment]
+env = "acrobot"
+actions = ["torque_neg", "no_torque", "torque_pos"]
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 30
+top_k = 20
+max_iters = 3
+cegar_rounds = 3
+max_steps = 500
+
+[validation]
+val_episodes = 200

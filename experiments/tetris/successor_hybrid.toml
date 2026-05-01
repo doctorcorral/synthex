@@ -1,0 +1,25 @@
+[experiment]
+name = "tetris_successor_hybrid"
+method = "successor"
+
+[environment]
+env = "tetris"
+actions = ["left", "right", "rotate", "down"]
+default = "noop"
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 15
+top_k = 20
+max_iters = 3
+cegar_rounds = 3
+max_steps = 2000
+
+[successor]
+lookahead = 200
+sample_every = 5
+succ_top_k = 200
+
+[validation]
+val_episodes = 500

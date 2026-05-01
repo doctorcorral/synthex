@@ -1,0 +1,11 @@
+[experiment]
+name = "mountaincar_pairwise_matrix"
+method = "pairwise_matrix"
+
+[environment]
+module = "MountainCar"
+
+[synthesis]
+depth = 1
+max_coeff = 3
+max_fuel = 100

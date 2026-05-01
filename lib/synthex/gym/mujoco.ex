@@ -1,0 +1,312 @@
+defmodule Synthex.Gym.Mujoco do
+  @moduledoc """
+  Binary-weighted synthesis for MuJoCo continuous-action environments.
+
+  Generalized version of Binary: bits_per_dim, n_action_dims, and
+  dim names are runtime parameters rather than compile-time constants.
+  Uses the shared mujoco.py oracle adapter.
+  """
+
+  alias Synthex.Gym.Oracle, as: GymOracle
+  alias Synthex.Core.CEGIS
+
+  @env_configs %{
+    inverted_pendulum: %{
+      gym_name: "InvertedPendulum-v5",
+      n_action_dims: 1,
+      num_dims: 4,
+      max_steps: 1000,
+      action_range: {-3.0, 3.0},
+      dim_names: %{0 => "x", 1 => "x_dot", 2 => "theta", 3 => "theta_dot"},
+      action_dim_names: %{0 => "force"}
+    },
+    swimmer: %{
+      gym_name: "Swimmer-v5",
+      n_action_dims: 2,
+      num_dims: 8,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: %{
+        0 => "angle0", 1 => "angle1",
+        2 => "vel_x", 3 => "vel_y",
+        4 => "ang_vel0", 5 => "ang_vel1",
+        6 => "ang_vel2", 7 => "ang_vel3"
+      },
+      action_dim_names: %{0 => "torque0", 1 => "torque1"}
+    },
+    hopper: %{
+      gym_name: "Hopper-v5",
+      n_action_dims: 3,
+      num_dims: 11,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: %{
+        0 => "z", 1 => "angle",
+        2 => "thigh_angle", 3 => "leg_angle", 4 => "foot_angle",
+        5 => "vel_x", 6 => "vel_z",
+        7 => "ang_vel", 8 => "thigh_vel", 9 => "leg_vel", 10 => "foot_vel"
+      },
+      action_dim_names: %{0 => "thigh", 1 => "leg", 2 => "foot"}
+    },
+    half_cheetah: %{
+      gym_name: "HalfCheetah-v5",
+      n_action_dims: 6,
+      num_dims: 17,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: (for i <- 0..16, into: %{}, do: {i, "d#{i}"}),
+      action_dim_names: %{
+        0 => "bthigh", 1 => "bshin", 2 => "bfoot",
+        3 => "fthigh", 4 => "fshin", 5 => "ffoot"
+      }
+    },
+    walker2d: %{
+      gym_name: "Walker2d-v5",
+      n_action_dims: 6,
+      num_dims: 17,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: (for i <- 0..16, into: %{}, do: {i, "d#{i}"}),
+      action_dim_names: %{
+        0 => "thigh_r", 1 => "leg_r", 2 => "foot_r",
+        3 => "thigh_l", 4 => "leg_l", 5 => "foot_l"
+      }
+    }
+  }
+
+  def solve(env_key, opts \\ []) do
+    cfg = Map.fetch!(@env_configs, env_key)
+    bits_per_dim = Keyword.get(opts, :bits_per_dim, 3)
+    n_action_dims = cfg.n_action_dims
+    n_bits = bits_per_dim * n_action_dims
+    weights = for i <- 0..(bits_per_dim - 1), do: Integer.pow(2, i)
+    max_sum = Enum.sum(weights)
+
+    max_steps = Keyword.get(opts, :max_steps, cfg.max_steps)
+    depth = Keyword.get(opts, :depth, 1)
+    max_coeff = Keyword.get(opts, :max_coeff, 5)
+    n_episodes = Keyword.get(opts, :n_episodes, 30)
+    top_k = Keyword.get(opts, :top_k, 20)
+    max_iters = Keyword.get(opts, :max_iters, 5)
+    cegar_rounds = Keyword.get(opts, :cegar_rounds, 3)
+
+    {lo, hi} = cfg.action_range
+    val_seeds = Enum.to_list(10_000..10_199)
+
+    IO.puts("  CSHRL Binary-Weighted Synthesis -- MuJoCo")
+    IO.puts("  Env: #{cfg.gym_name}")
+    IO.puts("  #{bits_per_dim} bits/dim x #{n_action_dims} dims = #{n_bits} predicates")
+    IO.puts("  Action range: [#{lo}, #{hi}]")
+    IO.puts("  Depth: #{depth}, Episodes: #{n_episodes}, TopK: #{top_k}\n")
+
+    ctx = %{
+      env_key: env_key,
+      cfg: cfg,
+      bits_per_dim: bits_per_dim,
+      n_bits: n_bits,
+      n_action_dims: n_action_dims,
+      weights: weights,
+      max_sum: max_sum,
+      max_steps: max_steps,
+      depth: depth,
+      max_coeff: max_coeff,
+      n_episodes: n_episodes,
+      top_k: top_k
+    }
+
+    bit_preds = List.duplicate(:falsep, n_bits)
+
+    final_preds =
+      Enum.reduce(1..cegar_rounds, bit_preds, fn cegar_iter, preds ->
+        IO.puts("\n  CEGAR Round #{cegar_iter}/#{cegar_rounds}")
+
+        {states, _n_succ} = collect_states(preds, ctx)
+        IO.puts("  #{length(states)} states collected")
+
+        features = GymOracle.generate_features(states, env: env_key, max_coeff: max_coeff)
+        IO.puts("  #{length(features)} features\n")
+
+        Enum.reduce(1..max_iters, preds, fn iter, cur_preds ->
+          IO.puts("\n  Iteration #{iter}/#{max_iters}")
+          seed_offset = ((cegar_iter - 1) * max_iters + (iter - 1)) * n_episodes
+          seeds = Enum.to_list(seed_offset..(seed_offset + n_episodes - 1))
+
+          bit_indices = Enum.to_list(0..(n_bits - 1)) |> Enum.shuffle()
+
+          {new_preds, _any_improved} =
+            Enum.reduce(bit_indices, {cur_preds, false}, fn bit_idx, {ps, imp} ->
+              dim_idx = div(bit_idx, bits_per_dim)
+              bit_pos = rem(bit_idx, bits_per_dim)
+              weight = Enum.at(weights, bit_pos)
+              dim_name = cfg.action_dim_names[dim_idx] || "dim#{dim_idx}"
+
+              IO.puts("\n  >> Bit #{bit_idx}: #{dim_name} weight=#{weight}")
+              result = optimize_bit(ps, bit_idx, features, ctx, seeds)
+
+              case result do
+                nil ->
+                  IO.puts("    No improvement")
+                  {ps, imp}
+                {new_pred, reward} ->
+                  IO.puts("    reward=#{Float.round(reward, 1)}")
+                  {List.replace_at(ps, bit_idx, new_pred), true}
+              end
+            end)
+
+          {val_reward, val_survived} = validate(new_preds, val_seeds, ctx)
+          avg = Float.round(val_reward / length(val_seeds), 1)
+          IO.puts("  Validation: avg=#{avg}/ep survived=#{val_survived}/#{length(val_seeds)}")
+          new_preds
+        end)
+      end)
+
+    IO.puts("\n  SYNTHESIS COMPLETE -- #{cfg.gym_name}")
+    {val_reward, _} = validate(final_preds, val_seeds, ctx)
+    avg = Float.round(val_reward / length(val_seeds), 1)
+    IO.puts("  Final validation avg: #{avg}/ep")
+
+    final_preds
+  end
+
+  defp optimize_bit(preds, bit_idx, features, ctx, seeds) do
+    atoms = CEGIS.enumerate(features, 0)
+    all_d0 = [:truep, :falsep | atoms]
+
+    {scored_d0, baseline} = score_bit_candidates(all_d0, preds, bit_idx, seeds, ctx)
+    best_d0 = Enum.max_by(scored_d0, fn {_i, r, _l} -> r end, fn -> nil end)
+
+    d0_result =
+      case best_d0 do
+        nil -> nil
+        {idx, reward, _count} ->
+          if reward > baseline do
+            {Enum.at(all_d0, idx), reward, scored_d0}
+          else
+            nil
+          end
+      end
+
+    if ctx.depth == 0 do
+      case d0_result do
+        nil -> nil
+        {p, r, _} -> {p, r}
+      end
+    else
+      top_atoms =
+        scored_d0
+        |> Enum.sort_by(fn {_idx, r, _l} -> -r end)
+        |> Enum.take(ctx.top_k)
+        |> Enum.map(fn {idx, _r, _l} -> Enum.at(all_d0, idx) end)
+        |> Enum.reject(fn p -> p == :truep or p == :falsep end)
+
+      negations = Enum.map(top_atoms, fn p -> {:not, p} end)
+      d1_candidates =
+        (for p <- top_atoms, q <- top_atoms, p != q, do: {:and, p, q}) ++
+        (for p <- top_atoms, q <- top_atoms, p != q, do: {:or, p, q}) ++
+        (for p <- negations, q <- top_atoms, do: {:and, p, q})
+      d1_candidates = Enum.uniq(d1_candidates)
+
+      {scored_d1, _} = score_bit_candidates(d1_candidates, preds, bit_idx, seeds, ctx)
+      best_d1 = Enum.max_by(scored_d1, fn {_i, r, _l} -> r end, fn -> nil end)
+
+      threshold = case d0_result do
+        nil -> baseline
+        {_, r, _} -> r
+      end
+
+      case best_d1 do
+        nil ->
+          case d0_result do
+            nil -> nil
+            {p, r, _} -> {p, r}
+          end
+        {idx, reward, _count} ->
+          if reward > threshold do
+            {Enum.at(d1_candidates, idx), reward}
+          else
+            case d0_result do
+              nil -> nil
+              {p, r, _} -> {p, r}
+            end
+          end
+      end
+    end
+  end
+
+  defp score_bit_candidates(candidates, preds, target_bit, seeds, ctx) do
+    serialized_candidates = Enum.map(candidates, &GymOracle.serialize_pred/1)
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+
+    request = %{
+      "cmd" => "score_bit",
+      "env_name" => ctx.cfg.gym_name,
+      "bits_per_dim" => ctx.bits_per_dim,
+      "candidates" => serialized_candidates,
+      "bit_predicates" => serialized_preds,
+      "target_bit" => target_bit,
+      "seeds" => seeds,
+      "max_steps" => ctx.max_steps
+    }
+
+    result = call_python(request, ctx.env_key)
+    scored = Enum.map(result["scores"], fn s ->
+      {s["idx"], s["reward"], s["landings"]}
+    end)
+    {scored, result["baseline_reward"]}
+  end
+
+  defp collect_states(preds, ctx) do
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+
+    request = %{
+      "cmd" => "collect_states",
+      "env_name" => ctx.cfg.gym_name,
+      "bits_per_dim" => ctx.bits_per_dim,
+      "bit_predicates" => serialized_preds,
+      "seeds" => Enum.to_list(0..39),
+      "max_steps" => ctx.max_steps
+    }
+
+    result = call_python(request, ctx.env_key)
+    {result["states"], result["n_landings"]}
+  end
+
+  defp validate(preds, seeds, ctx) do
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+
+    request = %{
+      "cmd" => "score_bit",
+      "env_name" => ctx.cfg.gym_name,
+      "bits_per_dim" => ctx.bits_per_dim,
+      "candidates" => [],
+      "bit_predicates" => serialized_preds,
+      "target_bit" => 0,
+      "seeds" => seeds,
+      "max_steps" => ctx.max_steps
+    }
+
+    result = call_python(request, ctx.env_key)
+    {result["baseline_reward"], result["baseline_landings"]}
+  end
+
+  defp call_python(request, env_key) do
+    script = GymOracle.oracle_script(env_key)
+    python = Application.get_env(:synthex, :python, "python3")
+    uid = :erlang.unique_integer([:positive])
+    tmp_dir = System.tmp_dir!()
+    req_file = Path.join(tmp_dir, "synthex_mujoco_#{uid}.json")
+    resp_file = Path.join(tmp_dir, "synthex_mujoco_resp_#{uid}.json")
+
+    File.write!(req_file, Jason.encode!(request))
+    {_output, _exit} =
+      System.cmd(python, ["-u", script, req_file, resp_file],
+        stderr_to_stdout: true,
+        cd: Application.get_env(:synthex, :project_root, Path.expand("../../..", __DIR__))
+      )
+
+    result = Jason.decode!(File.read!(resp_file))
+    File.rm(req_file)
+    File.rm(resp_file)
+    result
+  end
+end

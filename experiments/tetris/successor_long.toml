@@ -1,0 +1,26 @@
+[experiment]
+name = "tetris_successor_long"
+method = "successor"
+# Estimated runtime: ~5-7 days on a modern multi-core machine
+
+[environment]
+env = "tetris"
+actions = ["left", "right", "rotate", "down"]
+default = "noop"
+
+[synthesis]
+depth = 1
+max_coeff = 5
+n_episodes = 40
+top_k = 30
+max_iters = 6
+cegar_rounds = 4
+max_steps = 8000
+
+[successor]
+lookahead = 800
+sample_every = 4
+succ_top_k = 300
+
+[validation]
+val_episodes = 1000
