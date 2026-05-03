@@ -84,7 +84,7 @@ defmodule Synthex.Gym.Oracle do
     },
     inverted_pendulum: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco.py",
+      oracle: "mujoco_oracle.py",
       dims: 4,
       dim_names: %{},
       dim_py: %{},
@@ -93,7 +93,7 @@ defmodule Synthex.Gym.Oracle do
     },
     swimmer: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco.py",
+      oracle: "mujoco_oracle.py",
       dims: 8,
       dim_names: %{},
       dim_py: %{},
@@ -102,7 +102,7 @@ defmodule Synthex.Gym.Oracle do
     },
     hopper: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco.py",
+      oracle: "mujoco_oracle.py",
       dims: 11,
       dim_names: %{},
       dim_py: %{},
@@ -111,7 +111,7 @@ defmodule Synthex.Gym.Oracle do
     },
     half_cheetah: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco.py",
+      oracle: "mujoco_oracle.py",
       dims: 17,
       dim_names: %{},
       dim_py: %{},
@@ -120,7 +120,7 @@ defmodule Synthex.Gym.Oracle do
     },
     walker2d: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco.py",
+      oracle: "mujoco_oracle.py",
       dims: 17,
       dim_names: %{},
       dim_py: %{},
@@ -319,15 +319,28 @@ defmodule Synthex.Gym.Oracle do
     env = Keyword.get(opts, :env, :lunarlander)
     max_coeff = Keyword.get(opts, :max_coeff, 5)
     n_dims = num_dims(env)
+    
+    feature_types = Keyword.get(opts, :feature_types, [:axis, :diag, :sq_diag, :prod])
 
-    axis_feats = generate_axis_features(states, n_dims)
-    diag_feats = generate_diag_features(n_dims, max_coeff)
-    sq_diag_feats = generate_sq_diag_features(n_dims, max_coeff)
-    prod_feats = generate_product_features(states, n_dims)
-    tridiag_feats = generate_tridiag_features(n_dims, max_coeff)
-
-    axis_feats ++ diag_feats ++ sq_diag_feats ++ prod_feats ++ tridiag_feats
+    Enum.flat_map(feature_types, &generate_features(&1, states, n_dims, max_coeff))
   end
+
+  defp generate_features(:axis, states, n_dims, _max_coeff),
+    do: generate_axis_features(states, n_dims)
+
+  defp generate_features(:diag, _states, n_dims, max_coeff),
+    do: generate_diag_features(n_dims, max_coeff)
+
+  defp generate_features(:sq_diag, _states, n_dims, max_coeff),
+    do: generate_sq_diag_features(n_dims, max_coeff)
+
+  defp generate_features(:prod, states, n_dims, _max_coeff),
+    do: generate_product_features(states, n_dims)
+
+  defp generate_features(:tridiag, _states, n_dims, max_coeff),
+    do: generate_tridiag_features(n_dims, max_coeff)
+
+  defp generate_features(_, _states, _n_dims, _max_coeff), do: []
 
   defp generate_axis_features(states, n_dims) do
     for dim <- 0..(n_dims - 1),

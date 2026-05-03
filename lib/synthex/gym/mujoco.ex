@@ -123,7 +123,8 @@ defmodule Synthex.Gym.Mujoco do
         {states, _n_succ} = collect_states(preds, ctx)
         IO.puts("  #{length(states)} states collected")
 
-        features = GymOracle.generate_features(states, env: env_key, max_coeff: max_coeff)
+        feature_types = Keyword.get(opts, :feature_types, [:axis, :diag, :sq_diag, :prod])
+        features = GymOracle.generate_features(states, env: env_key, max_coeff: max_coeff, feature_types: feature_types)
         IO.puts("  #{length(features)} features\n")
 
         Enum.reduce(1..max_iters, preds, fn iter, cur_preds ->
