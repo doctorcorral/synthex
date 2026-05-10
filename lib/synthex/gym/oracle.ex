@@ -84,7 +84,7 @@ defmodule Synthex.Gym.Oracle do
     },
     inverted_pendulum: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco_oracle.py",
+      oracle: "mujoco.py",
       dims: 4,
       dim_names: %{},
       dim_py: %{},
@@ -93,7 +93,7 @@ defmodule Synthex.Gym.Oracle do
     },
     swimmer: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco_oracle.py",
+      oracle: "mujoco.py",
       dims: 8,
       dim_names: %{},
       dim_py: %{},
@@ -102,7 +102,7 @@ defmodule Synthex.Gym.Oracle do
     },
     hopper: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco_oracle.py",
+      oracle: "mujoco.py",
       dims: 11,
       dim_names: %{},
       dim_py: %{},
@@ -111,7 +111,7 @@ defmodule Synthex.Gym.Oracle do
     },
     half_cheetah: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco_oracle.py",
+      oracle: "mujoco.py",
       dims: 17,
       dim_names: %{},
       dim_py: %{},
@@ -120,7 +120,7 @@ defmodule Synthex.Gym.Oracle do
     },
     walker2d: %{
       actions: %{bit_off: 0, bit_on: 1},
-      oracle: "mujoco_oracle.py",
+      oracle: "mujoco.py",
       dims: 17,
       dim_names: %{},
       dim_py: %{},
@@ -311,36 +311,49 @@ defmodule Synthex.Gym.Oracle do
 
   # ── Learning Logic: Feature Generation ─────────────────────────
 
+  @all_feature_types [:axis, :diag, :sq_diag, :prod, :tridiag]
+
   @doc """
   Generate features from raw trajectory states.
-  Axis features at percentile thresholds + near-zero band, plus diagonal features.
+
+  ## Options
+
+    * `:env` — environment key (default `:lunarlander`).
+    * `:n_dims` — override the env's default `num_dims`. Useful when
+      the running Gymnasium variant has a different observation
+      shape than the registry says.
+    * `:max_coeff` — coefficient bound for `:diag`/`:sq_diag` (default 5).
+    * `:tridiag_max_coeff` — separate bound for `:tridiag` (default 2).
+      Tridiag generates `n_dims^3 * (2c)^2` features which explodes
+      fast; this lets you keep the other classes at full strength
+      while taming tridiag.
+    * `:tridiag_dims` — restrict tridiag to a subset of dim indices,
+      e.g. `0..26` for Ant's qpos+qvel without cfrc_ext. Default: all.
+    * `:feature_types` — list of feature classes to enable. One or more
+      of `#{inspect(@all_feature_types)}`. Default: all.
   """
   def generate_features(states, opts \\ []) do
     env = Keyword.get(opts, :env, :lunarlander)
     max_coeff = Keyword.get(opts, :max_coeff, 5)
-    n_dims = num_dims(env)
-    
-    feature_types = Keyword.get(opts, :feature_types, [:axis, :diag, :sq_diag, :prod])
+    tridiag_max_coeff = Keyword.get(opts, :tridiag_max_coeff, 2)
+    tridiag_dims = Keyword.get(opts, :tridiag_dims, nil)
 
-    Enum.flat_map(feature_types, &generate_features(&1, states, n_dims, max_coeff))
+    n_dims = Keyword.get(opts, :n_dims) || num_dims(env)
+
+    types = Keyword.get(opts, :feature_types, @all_feature_types)
+
+    Enum.flat_map(types, fn
+      :axis -> generate_axis_features(states, n_dims)
+      :diag -> generate_diag_features(n_dims, max_coeff)
+      :sq_diag -> generate_sq_diag_features(n_dims, max_coeff)
+      :prod -> generate_product_features(states, n_dims)
+      :tridiag -> generate_tridiag_features(n_dims, tridiag_max_coeff, tridiag_dims)
+      other -> raise ArgumentError, "unknown feature type: #{inspect(other)} (known: #{inspect(@all_feature_types)})"
+    end)
   end
 
-  defp generate_features(:axis, states, n_dims, _max_coeff),
-    do: generate_axis_features(states, n_dims)
-
-  defp generate_features(:diag, _states, n_dims, max_coeff),
-    do: generate_diag_features(n_dims, max_coeff)
-
-  defp generate_features(:sq_diag, _states, n_dims, max_coeff),
-    do: generate_sq_diag_features(n_dims, max_coeff)
-
-  defp generate_features(:prod, states, n_dims, _max_coeff),
-    do: generate_product_features(states, n_dims)
-
-  defp generate_features(:tridiag, _states, n_dims, max_coeff),
-    do: generate_tridiag_features(n_dims, max_coeff)
-
-  defp generate_features(_, _states, _n_dims, _max_coeff), do: []
+  @doc "All feature classes that `generate_features/2` knows about."
+  def all_feature_types, do: @all_feature_types
 
   defp generate_axis_features(states, n_dims) do
     for dim <- 0..(n_dims - 1),
@@ -403,13 +416,21 @@ defmodule Synthex.Gym.Oracle do
     end)
   end
 
-  defp generate_tridiag_features(n_dims, _max_coeff) when n_dims < 3, do: []
-  defp generate_tridiag_features(n_dims, max_coeff) do
+  defp generate_tridiag_features(n_dims, _max_coeff, _dims) when n_dims < 3, do: []
+
+  defp generate_tridiag_features(n_dims, max_coeff, dim_subset) do
     coeffs = for c <- 1..max_coeff, v <- [c, -c], do: v
 
-    for i <- 0..(n_dims - 1),
-        j <- 0..(n_dims - 1),
-        k <- 0..(n_dims - 1),
+    dims =
+      case dim_subset do
+        nil -> 0..(n_dims - 1) |> Enum.to_list()
+        list when is_list(list) -> list
+        %Range{} = r -> Enum.to_list(r)
+      end
+
+    for i <- dims,
+        j <- dims,
+        k <- dims,
         i != j and j != k and i != k,
         c1 <- coeffs,
         c2 <- coeffs do

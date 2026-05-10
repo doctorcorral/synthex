@@ -71,6 +71,41 @@ defmodule Synthex.Gym.Mujoco do
         0 => "thigh_r", 1 => "leg_r", 2 => "foot_r",
         3 => "thigh_l", 4 => "leg_l", 5 => "foot_l"
       }
+    },
+    ant: %{
+      gym_name: "Ant-v5",
+      n_action_dims: 8,
+      # Gymnasium 1.x default: qpos[2:]=13 + qvel=14 + cfrc_ext=78 = 105.
+      num_dims: 105,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: (for i <- 0..104, into: %{}, do: {i, "d#{i}"}),
+      action_dim_names: %{
+        0 => "hip_1", 1 => "ankle_1",
+        2 => "hip_2", 3 => "ankle_2",
+        4 => "hip_3", 5 => "ankle_3",
+        6 => "hip_4", 7 => "ankle_4"
+      }
+    },
+    humanoid: %{
+      gym_name: "Humanoid-v5",
+      n_action_dims: 17,
+      # Gymnasium 1.x default Humanoid-v5: 348 obs dims
+      # (qpos[2:]=22, qvel=23, cinert=140, cvel=84, qfrc_actuator=23, cfrc_ext=84−28=56).
+      # Verify with: gym.make("Humanoid-v5").observation_space.shape
+      num_dims: 348,
+      # Humanoid actions are clipped to [-0.4, 0.4] in the standard task.
+      max_steps: 1000,
+      action_range: {-0.4, 0.4},
+      dim_names: (for i <- 0..347, into: %{}, do: {i, "d#{i}"}),
+      action_dim_names: %{
+        0  => "abdomen_z",  1  => "abdomen_y",  2  => "abdomen_x",
+        3  => "right_hip_x", 4 => "right_hip_z", 5  => "right_hip_y",
+        6  => "right_knee",  7 => "left_hip_x",  8  => "left_hip_z",
+        9  => "left_hip_y",  10 => "left_knee",
+        11 => "right_shoulder1", 12 => "right_shoulder2", 13 => "right_elbow",
+        14 => "left_shoulder1",  15 => "left_shoulder2",  16 => "left_elbow"
+      }
     }
   }
 
@@ -85,10 +120,23 @@ defmodule Synthex.Gym.Mujoco do
     max_steps = Keyword.get(opts, :max_steps, cfg.max_steps)
     depth = Keyword.get(opts, :depth, 1)
     max_coeff = Keyword.get(opts, :max_coeff, 5)
+    tridiag_max_coeff = Keyword.get(opts, :tridiag_max_coeff, 2)
+    tridiag_dims = Keyword.get(opts, :tridiag_dims, nil)
     n_episodes = Keyword.get(opts, :n_episodes, 30)
     top_k = Keyword.get(opts, :top_k, 20)
     max_iters = Keyword.get(opts, :max_iters, 5)
     cegar_rounds = Keyword.get(opts, :cegar_rounds, 3)
+    feature_types = Keyword.get(opts, :feature_types, GymOracle.all_feature_types())
+
+    # Where work is dispatched: :local (default) runs Python via
+    # System.cmd in this process; :hub posts the candidate batch to
+    # synthex-hub at ctx.hub_url and polls until completion.
+    executor = Keyword.get(opts, :executor, :local)
+    hub_url = Keyword.get(opts, :hub_url, System.get_env("SYNTHEX_HUB_URL", "https://synthex.fit/api"))
+    hub_token = Keyword.get(opts, :hub_token, System.get_env("SYNTHEX_HUB_TOKEN"))
+    hub_chunk_size = Keyword.get(opts, :hub_chunk_size, 100)
+    hub_poll_interval_ms = Keyword.get(opts, :hub_poll_interval_ms, 5_000)
+    hub_batch_name = Keyword.get(opts, :hub_batch_name, "#{env_key}-#{:erlang.system_time(:second)}")
 
     {lo, hi} = cfg.action_range
     val_seeds = Enum.to_list(10_000..10_199)
@@ -96,8 +144,10 @@ defmodule Synthex.Gym.Mujoco do
     IO.puts("  CSHRL Binary-Weighted Synthesis -- MuJoCo")
     IO.puts("  Env: #{cfg.gym_name}")
     IO.puts("  #{bits_per_dim} bits/dim x #{n_action_dims} dims = #{n_bits} predicates")
-    IO.puts("  Action range: [#{lo}, #{hi}]")
-    IO.puts("  Depth: #{depth}, Episodes: #{n_episodes}, TopK: #{top_k}\n")
+    IO.puts("  Obs dims: #{cfg.num_dims} | Action range: [#{lo}, #{hi}]")
+    IO.puts("  Depth: #{depth}, Episodes: #{n_episodes}, TopK: #{top_k}")
+    IO.puts("  Features: #{inspect(feature_types)} (max_coeff=#{max_coeff}, tridiag_max_coeff=#{tridiag_max_coeff})")
+    IO.puts("  Executor: #{executor}#{if executor == :hub, do: " → #{hub_url}", else: ""}\n")
 
     ctx = %{
       env_key: env_key,
@@ -110,8 +160,17 @@ defmodule Synthex.Gym.Mujoco do
       max_steps: max_steps,
       depth: depth,
       max_coeff: max_coeff,
+      tridiag_max_coeff: tridiag_max_coeff,
+      tridiag_dims: tridiag_dims,
       n_episodes: n_episodes,
-      top_k: top_k
+      top_k: top_k,
+      feature_types: feature_types,
+      executor: executor,
+      hub_url: hub_url,
+      hub_token: hub_token,
+      hub_chunk_size: hub_chunk_size,
+      hub_poll_interval_ms: hub_poll_interval_ms,
+      hub_batch_name: hub_batch_name
     }
 
     bit_preds = List.duplicate(:falsep, n_bits)
@@ -123,8 +182,16 @@ defmodule Synthex.Gym.Mujoco do
         {states, _n_succ} = collect_states(preds, ctx)
         IO.puts("  #{length(states)} states collected")
 
-        feature_types = Keyword.get(opts, :feature_types, [:axis, :diag, :sq_diag, :prod])
-        features = GymOracle.generate_features(states, env: env_key, max_coeff: max_coeff, feature_types: feature_types)
+        features =
+          GymOracle.generate_features(states,
+            env: env_key,
+            n_dims: cfg.num_dims,
+            max_coeff: max_coeff,
+            tridiag_max_coeff: tridiag_max_coeff,
+            tridiag_dims: tridiag_dims,
+            feature_types: feature_types
+          )
+
         IO.puts("  #{length(features)} features\n")
 
         Enum.reduce(1..max_iters, preds, fn iter, cur_preds ->
@@ -249,11 +316,44 @@ defmodule Synthex.Gym.Mujoco do
       "max_steps" => ctx.max_steps
     }
 
+    case ctx.executor do
+      :local -> score_bit_local(request, ctx)
+      :hub -> score_bit_hub(request, ctx, target_bit)
+      other -> raise ArgumentError, "unknown executor: #{inspect(other)} (use :local or :hub)"
+    end
+  end
+
+  defp score_bit_local(request, ctx) do
     result = call_python(request, ctx.env_key)
     scored = Enum.map(result["scores"], fn s ->
       {s["idx"], s["reward"], s["landings"]}
     end)
     {scored, result["baseline_reward"]}
+  end
+
+  defp score_bit_hub(request, ctx, target_bit) do
+    client =
+      Synthex.Hub.Client.new(
+        url: ctx.hub_url,
+        token: ctx.hub_token,
+        chunk_size: ctx.hub_chunk_size,
+        poll_interval_ms: ctx.hub_poll_interval_ms
+      )
+
+    batch_name = "#{ctx.hub_batch_name}-bit#{target_bit}"
+
+    case Synthex.Hub.Client.score_bit(client, request, batch_name: batch_name) do
+      {:ok, %{scores: scores, baseline_reward: baseline}} ->
+        scored =
+          Enum.map(scores, fn s ->
+            {s["idx"], s["reward"], Map.get(s, "landings", 0)}
+          end)
+
+        {scored, baseline}
+
+      {:error, reason} ->
+        raise "Synthex.Hub batch failed for bit #{target_bit}: #{reason}"
+    end
   end
 
   defp collect_states(preds, ctx) do
