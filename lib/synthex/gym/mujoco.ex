@@ -128,15 +128,10 @@ defmodule Synthex.Gym.Mujoco do
     cegar_rounds = Keyword.get(opts, :cegar_rounds, 3)
     feature_types = Keyword.get(opts, :feature_types, GymOracle.all_feature_types())
 
-    # Where work is dispatched: :local (default) runs Python via
-    # System.cmd in this process; :hub posts the candidate batch to
-    # synthex-hub at ctx.hub_url and polls until completion.
-    executor = Keyword.get(opts, :executor, :local)
-    hub_url = Keyword.get(opts, :hub_url, System.get_env("SYNTHEX_HUB_URL", "https://synthex.fit/api"))
-    hub_token = Keyword.get(opts, :hub_token, System.get_env("SYNTHEX_HUB_TOKEN"))
-    hub_chunk_size = Keyword.get(opts, :hub_chunk_size, 100)
-    hub_poll_interval_ms = Keyword.get(opts, :hub_poll_interval_ms, 5_000)
-    hub_batch_name = Keyword.get(opts, :hub_batch_name, "#{env_key}-#{:erlang.system_time(:second)}")
+    # Pluggable oracle invocation. Defaults to `Synthex.Scoring.LocalPython`,
+    # which forks a Python interpreter via `System.cmd`. To distribute,
+    # plug in `Synthex.Hub.Scorer` from the synthex-hub client lib.
+    scorer = Keyword.get(opts, :scorer) || Synthex.Scoring.default(env_key)
 
     {lo, hi} = cfg.action_range
     val_seeds = Enum.to_list(10_000..10_199)
@@ -146,8 +141,7 @@ defmodule Synthex.Gym.Mujoco do
     IO.puts("  #{bits_per_dim} bits/dim x #{n_action_dims} dims = #{n_bits} predicates")
     IO.puts("  Obs dims: #{cfg.num_dims} | Action range: [#{lo}, #{hi}]")
     IO.puts("  Depth: #{depth}, Episodes: #{n_episodes}, TopK: #{top_k}")
-    IO.puts("  Features: #{inspect(feature_types)} (max_coeff=#{max_coeff}, tridiag_max_coeff=#{tridiag_max_coeff})")
-    IO.puts("  Executor: #{executor}#{if executor == :hub, do: " → #{hub_url}", else: ""}\n")
+    IO.puts("  Features: #{inspect(feature_types)} (max_coeff=#{max_coeff}, tridiag_max_coeff=#{tridiag_max_coeff})\n")
 
     ctx = %{
       env_key: env_key,
@@ -165,12 +159,7 @@ defmodule Synthex.Gym.Mujoco do
       n_episodes: n_episodes,
       top_k: top_k,
       feature_types: feature_types,
-      executor: executor,
-      hub_url: hub_url,
-      hub_token: hub_token,
-      hub_chunk_size: hub_chunk_size,
-      hub_poll_interval_ms: hub_poll_interval_ms,
-      hub_batch_name: hub_batch_name
+      scorer: scorer
     }
 
     bit_preds = List.duplicate(:falsep, n_bits)
@@ -316,44 +305,14 @@ defmodule Synthex.Gym.Mujoco do
       "max_steps" => ctx.max_steps
     }
 
-    case ctx.executor do
-      :local -> score_bit_local(request, ctx)
-      :hub -> score_bit_hub(request, ctx, target_bit)
-      other -> raise ArgumentError, "unknown executor: #{inspect(other)} (use :local or :hub)"
-    end
-  end
+    result = call_scorer!(request, ctx)
 
-  defp score_bit_local(request, ctx) do
-    result = call_python(request, ctx.env_key)
-    scored = Enum.map(result["scores"], fn s ->
-      {s["idx"], s["reward"], s["landings"]}
-    end)
+    scored =
+      Enum.map(result["scores"] || [], fn s ->
+        {s["idx"], s["reward"], Map.get(s, "landings", 0)}
+      end)
+
     {scored, result["baseline_reward"]}
-  end
-
-  defp score_bit_hub(request, ctx, target_bit) do
-    client =
-      Synthex.Hub.Client.new(
-        url: ctx.hub_url,
-        token: ctx.hub_token,
-        chunk_size: ctx.hub_chunk_size,
-        poll_interval_ms: ctx.hub_poll_interval_ms
-      )
-
-    batch_name = "#{ctx.hub_batch_name}-bit#{target_bit}"
-
-    case Synthex.Hub.Client.score_bit(client, request, batch_name: batch_name) do
-      {:ok, %{scores: scores, baseline_reward: baseline}} ->
-        scored =
-          Enum.map(scores, fn s ->
-            {s["idx"], s["reward"], Map.get(s, "landings", 0)}
-          end)
-
-        {scored, baseline}
-
-      {:error, reason} ->
-        raise "Synthex.Hub batch failed for bit #{target_bit}: #{reason}"
-    end
   end
 
   defp collect_states(preds, ctx) do
@@ -368,7 +327,7 @@ defmodule Synthex.Gym.Mujoco do
       "max_steps" => ctx.max_steps
     }
 
-    result = call_python(request, ctx.env_key)
+    result = call_scorer!(request, ctx)
     {result["states"], result["n_landings"]}
   end
 
@@ -386,28 +345,22 @@ defmodule Synthex.Gym.Mujoco do
       "max_steps" => ctx.max_steps
     }
 
-    result = call_python(request, ctx.env_key)
+    result = call_scorer!(request, ctx)
     {result["baseline_reward"], result["baseline_landings"]}
   end
 
-  defp call_python(request, env_key) do
-    script = GymOracle.oracle_script(env_key)
-    python = Application.get_env(:synthex, :python, "python3")
-    uid = :erlang.unique_integer([:positive])
-    tmp_dir = System.tmp_dir!()
-    req_file = Path.join(tmp_dir, "synthex_mujoco_#{uid}.json")
-    resp_file = Path.join(tmp_dir, "synthex_mujoco_resp_#{uid}.json")
+  # Single point of contact with the outside world. The scorer is
+  # whatever the caller plugged in via `solve(..., scorer: ...)`;
+  # `Synthex.Scoring.LocalPython` is the default. Distributed scorers
+  # (e.g. `Synthex.Hub.Scorer` from synthex-hub-client) live outside
+  # this repo so synthex itself stays HTTP-free.
+  defp call_scorer!(request, ctx) do
+    case ctx.scorer.(request) do
+      {:ok, response} ->
+        response
 
-    File.write!(req_file, Jason.encode!(request))
-    {_output, _exit} =
-      System.cmd(python, ["-u", script, req_file, resp_file],
-        stderr_to_stdout: true,
-        cd: Application.get_env(:synthex, :project_root, Path.expand("../../..", __DIR__))
-      )
-
-    result = Jason.decode!(File.read!(resp_file))
-    File.rm(req_file)
-    File.rm(resp_file)
-    result
+      {:error, reason} ->
+        raise "Synthex.Gym.Mujoco scorer failed (cmd=#{request["cmd"]}): #{reason}"
+    end
   end
 end
