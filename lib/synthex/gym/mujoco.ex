@@ -206,7 +206,34 @@ defmodule Synthex.Gym.Mujoco do
                   {ps, imp}
                 {new_pred, reward} ->
                   IO.puts("    reward=#{Float.round(reward, 1)}")
-                  {List.replace_at(ps, bit_idx, new_pred), true}
+                  updated = List.replace_at(ps, bit_idx, new_pred)
+
+                  # Emit a telemetry event so masters can react to
+                  # accepted CEGAR steps without us shipping a
+                  # callback-option API surface. Handlers attach via
+                  # `:telemetry.attach/4` with event name
+                  # `[:synthex, :mujoco, :bit_accepted]`. Measurements
+                  # carry the new reward; metadata carries everything
+                  # a snapshot publisher needs.
+                  :telemetry.execute(
+                    [:synthex, :mujoco, :bit_accepted],
+                    %{reward: reward},
+                    %{
+                      env_key: ctx.env_key,
+                      env_name: cfg.gym_name,
+                      cegar_iter: cegar_iter,
+                      iter: iter,
+                      bit_idx: bit_idx,
+                      bits_per_dim: ctx.bits_per_dim,
+                      n_action_dims: ctx.n_action_dims,
+                      n_bits: ctx.n_bits,
+                      action_range: cfg.action_range,
+                      action_dim_names: cfg.action_dim_names,
+                      bit_predicates: updated
+                    }
+                  )
+
+                  {updated, true}
               end
             end)
 

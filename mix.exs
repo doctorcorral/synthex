@@ -22,6 +22,7 @@ defmodule Synthex.MixProject do
     [
       {:flow, "~> 1.2"},
       {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.2"},
       {:toml, "~> 0.7"}
     ]
   end
