@@ -200,4 +200,38 @@ defmodule Synthex.Core.PrettyPrint do
   def to_json_term({:not, p}), do: ["not", to_json_term(p)]
   def to_json_term({:and, a, b}), do: ["and", to_json_term(a), to_json_term(b)]
   def to_json_term({:or, a, b}), do: ["or", to_json_term(a), to_json_term(b)]
+
+  @doc """
+  Inverse of `to_json_term/1`. Converts a JSON-deserialized term
+  (strings and lists, as Jason produces them) back into the
+  internal `PredProg.t()` tuple shape so it can be fed to
+  `Synthex.Gym.Oracle.serialize_pred/1`, `optimize_bit/5`, etc.
+
+  Used by Synthex Hub's experiment checkpoint loader: predicates
+  live in a Postgres `jsonb` column between Oban-master ticks, and
+  this is how each tick rebuilds the in-memory representation.
+
+      "truep"                       -> :truep
+      "falsep"                      -> :falsep
+      ["feat", X]                   -> {:feat, X}      (X kept as-is)
+      ["not", P]                    -> {:not, decode(P)}
+      ["and", A, B]                 -> {:and, decode(A), decode(B)}
+      ["or", A, B]                  -> {:or, decode(A), decode(B)}
+
+  Raises on unrecognized shapes — silent acceptance of malformed
+  predicates would let a bad checkpoint poison every subsequent
+  CEGAR step.
+  """
+  @spec from_json_term(term()) :: PredProg.t()
+  def from_json_term("truep"), do: :truep
+  def from_json_term("falsep"), do: :falsep
+  def from_json_term(["feat", spec]), do: {:feat, spec}
+  def from_json_term(["not", p]), do: {:not, from_json_term(p)}
+  def from_json_term(["and", a, b]), do: {:and, from_json_term(a), from_json_term(b)}
+  def from_json_term(["or", a, b]), do: {:or, from_json_term(a), from_json_term(b)}
+
+  def from_json_term(other) do
+    raise ArgumentError,
+          "Synthex.Core.PrettyPrint.from_json_term/1: unrecognized term #{inspect(other)}"
+  end
 end

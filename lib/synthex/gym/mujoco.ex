@@ -5,6 +5,24 @@ defmodule Synthex.Gym.Mujoco do
   Generalized version of Binary: bits_per_dim, n_action_dims, and
   dim names are runtime parameters rather than compile-time constants.
   Uses the shared mujoco.py oracle adapter.
+
+  ## API surface
+
+  Two ways to use this module:
+
+    * `solve/2` — one-shot driver. Runs the full CEGAR loop in a single
+      Elixir process. Good for laptop / local Python runs.
+
+    * The resumable building blocks — `init_context/2`, `collect_states/2`,
+      `build_features/2`, `optimize_bit/5`, `validate/3`, `shuffle_bits/2`,
+      `seeds_for/3`. These are the same operations `solve/2` is built on,
+      exposed so an external orchestrator (e.g. Oban jobs on Synthex Hub)
+      can drive synthesis with persistent checkpoints between steps and
+      auto-resume on crash.
+
+  The resumable API is pure (no I/O or process state outside of the
+  scorer it's handed), so it composes cleanly with any supervisor —
+  Oban, GenServer, or a hand-rolled `Enum.reduce`.
   """
 
   alias Synthex.Gym.Oracle, as: GymOracle
@@ -109,7 +127,31 @@ defmodule Synthex.Gym.Mujoco do
     }
   }
 
-  def solve(env_key, opts \\ []) do
+  @doc """
+  Look up the static config for an env (gym name, obs/action dims,
+  action range, dim names, default max_steps).
+  """
+  @spec env_config(atom()) :: map()
+  def env_config(env_key), do: Map.fetch!(@env_configs, env_key)
+
+  @doc """
+  List all envs this module knows how to synthesize for.
+  """
+  @spec known_envs() :: [atom()]
+  def known_envs, do: Map.keys(@env_configs)
+
+  @doc """
+  Build a synthesis context from `env_key` + opts.
+
+  Returns a `ctx` map carrying every parameter the resumable building
+  blocks need: bits_per_dim, n_bits, depth, max_coeff, feature_types,
+  scorer, etc. Same opts as `solve/2`; see that doc for the list.
+
+  The returned ctx is the unit you'd checkpoint to disk / Postgres to
+  resume a synthesis run across process restarts.
+  """
+  @spec init_context(atom(), keyword()) :: map()
+  def init_context(env_key, opts \\ []) do
     cfg = Map.fetch!(@env_configs, env_key)
     bits_per_dim = Keyword.get(opts, :bits_per_dim, 3)
     n_action_dims = cfg.n_action_dims
@@ -133,17 +175,7 @@ defmodule Synthex.Gym.Mujoco do
     # plug in `Synthex.Hub.Scorer` from the synthex-hub client lib.
     scorer = Keyword.get(opts, :scorer) || Synthex.Scoring.default(env_key)
 
-    {lo, hi} = cfg.action_range
-    val_seeds = Enum.to_list(10_000..10_199)
-
-    IO.puts("  CSHRL Binary-Weighted Synthesis -- MuJoCo")
-    IO.puts("  Env: #{cfg.gym_name}")
-    IO.puts("  #{bits_per_dim} bits/dim x #{n_action_dims} dims = #{n_bits} predicates")
-    IO.puts("  Obs dims: #{cfg.num_dims} | Action range: [#{lo}, #{hi}]")
-    IO.puts("  Depth: #{depth}, Episodes: #{n_episodes}, TopK: #{top_k}")
-    IO.puts("  Features: #{inspect(feature_types)} (max_coeff=#{max_coeff}, tridiag_max_coeff=#{tridiag_max_coeff})\n")
-
-    ctx = %{
+    %{
       env_key: env_key,
       cfg: cfg,
       bits_per_dim: bits_per_dim,
@@ -158,82 +190,226 @@ defmodule Synthex.Gym.Mujoco do
       tridiag_dims: tridiag_dims,
       n_episodes: n_episodes,
       top_k: top_k,
+      max_iters: max_iters,
+      cegar_rounds: cegar_rounds,
       feature_types: feature_types,
       scorer: scorer
     }
+  end
 
-    bit_preds = List.duplicate(:falsep, n_bits)
+  @doc """
+  Initial predicate vector for a fresh run. All bits start as
+  `:falsep` (every action dimension off → zero output).
+  """
+  @spec initial_predicates(map()) :: [Synthex.Core.PredProg.predicate()]
+  def initial_predicates(ctx), do: List.duplicate(:falsep, ctx.n_bits)
+
+  @doc """
+  Run one CEGAR round's state collection. Calls the scorer's
+  `collect_states` command with the current predicate vector and
+  returns `{states, n_landings}`. Pure with respect to `ctx` and
+  `preds`; the only side effect is whatever the scorer does
+  (HTTP, Python subprocess, etc.).
+  """
+  @spec collect_states([Synthex.Core.PredProg.predicate()], map()) :: {[list()], non_neg_integer()}
+  def collect_states(preds, ctx) do
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+
+    request = %{
+      "cmd" => "collect_states",
+      "env_name" => ctx.cfg.gym_name,
+      "bits_per_dim" => ctx.bits_per_dim,
+      "bit_predicates" => serialized_preds,
+      "seeds" => Enum.to_list(0..39),
+      "max_steps" => ctx.max_steps
+    }
+
+    result = call_scorer!(request, ctx)
+    {result["states"], result["n_landings"]}
+  end
+
+  @doc """
+  Build the candidate feature set from observed states. Deterministic
+  given `states` and `ctx`, so a worker that crashes mid-CEGAR-round
+  can recompute features by re-running `collect_states` and this.
+  """
+  @spec build_features([list()], map()) :: [Synthex.Core.PredProg.predicate()]
+  def build_features(states, ctx) do
+    GymOracle.generate_features(states,
+      env: ctx.env_key,
+      n_dims: ctx.cfg.num_dims,
+      max_coeff: ctx.max_coeff,
+      tridiag_max_coeff: ctx.tridiag_max_coeff,
+      tridiag_dims: ctx.tridiag_dims,
+      feature_types: ctx.feature_types
+    )
+  end
+
+  @doc """
+  Produce a shuffled bit order for one CEGAR iteration. Pass a seed
+  to make the shuffle deterministic across resumes; pass `nil` (the
+  default) to let `:rand` pick its own state.
+
+  Returned list always contains every bit index in `0..n_bits-1`
+  exactly once.
+  """
+  @spec shuffle_bits(pos_integer(), term() | nil) :: [non_neg_integer()]
+  def shuffle_bits(n_bits, seed \\ nil)
+
+  def shuffle_bits(n_bits, nil) do
+    Enum.to_list(0..(n_bits - 1)) |> Enum.shuffle()
+  end
+
+  def shuffle_bits(n_bits, seed) do
+    # Assign each bit index a deterministic random sort key and sort
+    # by it — a Fisher-Yates-equivalent shuffle whose output depends
+    # only on `seed`. Reproducible across runs / nodes.
+    {indexed, _} =
+      Enum.map_reduce(0..(n_bits - 1), :rand.seed_s(:exsss, seed), fn i, rstate ->
+        {k, rstate} = :rand.uniform_s(rstate)
+        {{k, i}, rstate}
+      end)
+
+    indexed
+    |> Enum.sort_by(fn {k, _i} -> k end)
+    |> Enum.map(fn {_k, i} -> i end)
+  end
+
+  @doc """
+  Deterministic episode-seed list for a given `(cegar_iter, iter)`
+  pair. The CEGAR loop uses fresh seeds per iteration so a candidate
+  predicate can't overfit to a single env reset; this function
+  encodes the canonical offset scheme so a resumed iteration uses
+  the SAME seeds it would have on the original attempt.
+  """
+  @spec seeds_for(pos_integer(), pos_integer(), map()) :: [non_neg_integer()]
+  def seeds_for(cegar_iter, iter, ctx) do
+    seed_offset = ((cegar_iter - 1) * ctx.max_iters + (iter - 1)) * ctx.n_episodes
+    Enum.to_list(seed_offset..(seed_offset + ctx.n_episodes - 1))
+  end
+
+  @doc """
+  Standard validation seed set. Held constant across all runs so
+  validation scores are comparable.
+  """
+  @spec validation_seeds() :: [non_neg_integer()]
+  def validation_seeds, do: Enum.to_list(10_000..10_199)
+
+  @doc """
+  Run one bit search: score every candidate (at depth 0 and, if
+  `ctx.depth > 0`, the best depth-1 combinations) and return the
+  improvement, if any.
+
+  Returns:
+
+    * `{:improved, new_pred, reward}` — `new_pred` beats `preds[bit_idx]`
+      on `seeds`; reward is its mean episode return.
+    * `:no_improvement` — no candidate strictly improves over the
+      baseline.
+
+  This is the unit of work an orchestrator should checkpoint between:
+  the only state mutation is replacing `preds[bit_idx]` with `new_pred`
+  on success, which the caller does itself.
+  """
+  @spec optimize_bit(
+          [Synthex.Core.PredProg.predicate()],
+          non_neg_integer(),
+          [Synthex.Core.PredProg.predicate()],
+          map(),
+          [non_neg_integer()]
+        ) ::
+          {:improved, Synthex.Core.PredProg.predicate(), float()} | :no_improvement
+  def optimize_bit(preds, bit_idx, features, ctx, seeds) do
+    case do_optimize_bit(preds, bit_idx, features, ctx, seeds) do
+      nil -> :no_improvement
+      {new_pred, reward} -> {:improved, new_pred, reward}
+    end
+  end
+
+  @doc """
+  Run validation on a predicate vector. Returns `{total_reward,
+  n_survived}` summed over `seeds`. Divide by `length(seeds)` for
+  mean episode reward.
+  """
+  @spec validate([Synthex.Core.PredProg.predicate()], [non_neg_integer()], map()) ::
+          {float(), non_neg_integer()}
+  def validate(preds, seeds, ctx) do
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+
+    request = %{
+      "cmd" => "score_bit",
+      "env_name" => ctx.cfg.gym_name,
+      "bits_per_dim" => ctx.bits_per_dim,
+      "candidates" => [],
+      "bit_predicates" => serialized_preds,
+      "target_bit" => 0,
+      "seeds" => seeds,
+      "max_steps" => ctx.max_steps
+    }
+
+    result = call_scorer!(request, ctx)
+    {result["baseline_reward"], result["baseline_landings"]}
+  end
+
+  @doc """
+  One-shot driver. Equivalent to building a context, picking an
+  initial predicate vector, and running `cegar_rounds × max_iters`
+  passes over the bits via `optimize_bit/5`. Emits a
+  `[:synthex, :mujoco, :bit_accepted]` telemetry event on every
+  accepted improvement.
+
+  See module doc for opts.
+  """
+  def solve(env_key, opts \\ []) do
+    ctx = init_context(env_key, opts)
+    cfg = ctx.cfg
+
+    {lo, hi} = cfg.action_range
+    val_seeds = validation_seeds()
+
+    IO.puts("  CSHRL Binary-Weighted Synthesis -- MuJoCo")
+    IO.puts("  Env: #{cfg.gym_name}")
+    IO.puts("  #{ctx.bits_per_dim} bits/dim x #{ctx.n_action_dims} dims = #{ctx.n_bits} predicates")
+    IO.puts("  Obs dims: #{cfg.num_dims} | Action range: [#{lo}, #{hi}]")
+    IO.puts("  Depth: #{ctx.depth}, Episodes: #{ctx.n_episodes}, TopK: #{ctx.top_k}")
+    IO.puts("  Features: #{inspect(ctx.feature_types)} (max_coeff=#{ctx.max_coeff}, tridiag_max_coeff=#{ctx.tridiag_max_coeff})\n")
+
+    bit_preds = initial_predicates(ctx)
 
     final_preds =
-      Enum.reduce(1..cegar_rounds, bit_preds, fn cegar_iter, preds ->
-        IO.puts("\n  CEGAR Round #{cegar_iter}/#{cegar_rounds}")
+      Enum.reduce(1..ctx.cegar_rounds, bit_preds, fn cegar_iter, preds ->
+        IO.puts("\n  CEGAR Round #{cegar_iter}/#{ctx.cegar_rounds}")
 
         {states, _n_succ} = collect_states(preds, ctx)
         IO.puts("  #{length(states)} states collected")
 
-        features =
-          GymOracle.generate_features(states,
-            env: env_key,
-            n_dims: cfg.num_dims,
-            max_coeff: max_coeff,
-            tridiag_max_coeff: tridiag_max_coeff,
-            tridiag_dims: tridiag_dims,
-            feature_types: feature_types
-          )
-
+        features = build_features(states, ctx)
         IO.puts("  #{length(features)} features\n")
 
-        Enum.reduce(1..max_iters, preds, fn iter, cur_preds ->
-          IO.puts("\n  Iteration #{iter}/#{max_iters}")
-          seed_offset = ((cegar_iter - 1) * max_iters + (iter - 1)) * n_episodes
-          seeds = Enum.to_list(seed_offset..(seed_offset + n_episodes - 1))
+        Enum.reduce(1..ctx.max_iters, preds, fn iter, cur_preds ->
+          IO.puts("\n  Iteration #{iter}/#{ctx.max_iters}")
+          seeds = seeds_for(cegar_iter, iter, ctx)
+          bit_indices = shuffle_bits(ctx.n_bits)
 
-          bit_indices = Enum.to_list(0..(n_bits - 1)) |> Enum.shuffle()
-
-          {new_preds, _any_improved} =
-            Enum.reduce(bit_indices, {cur_preds, false}, fn bit_idx, {ps, imp} ->
-              dim_idx = div(bit_idx, bits_per_dim)
-              bit_pos = rem(bit_idx, bits_per_dim)
-              weight = Enum.at(weights, bit_pos)
+          new_preds =
+            Enum.reduce(bit_indices, cur_preds, fn bit_idx, ps ->
+              dim_idx = div(bit_idx, ctx.bits_per_dim)
+              bit_pos = rem(bit_idx, ctx.bits_per_dim)
+              weight = Enum.at(ctx.weights, bit_pos)
               dim_name = cfg.action_dim_names[dim_idx] || "dim#{dim_idx}"
 
               IO.puts("\n  >> Bit #{bit_idx}: #{dim_name} weight=#{weight}")
-              result = optimize_bit(ps, bit_idx, features, ctx, seeds)
 
-              case result do
-                nil ->
+              case optimize_bit(ps, bit_idx, features, ctx, seeds) do
+                :no_improvement ->
                   IO.puts("    No improvement")
-                  {ps, imp}
-                {new_pred, reward} ->
+                  ps
+
+                {:improved, new_pred, reward} ->
                   IO.puts("    reward=#{Float.round(reward, 1)}")
                   updated = List.replace_at(ps, bit_idx, new_pred)
-
-                  # Emit a telemetry event so masters can react to
-                  # accepted CEGAR steps without us shipping a
-                  # callback-option API surface. Handlers attach via
-                  # `:telemetry.attach/4` with event name
-                  # `[:synthex, :mujoco, :bit_accepted]`. Measurements
-                  # carry the new reward; metadata carries everything
-                  # a snapshot publisher needs.
-                  :telemetry.execute(
-                    [:synthex, :mujoco, :bit_accepted],
-                    %{reward: reward},
-                    %{
-                      env_key: ctx.env_key,
-                      env_name: cfg.gym_name,
-                      cegar_iter: cegar_iter,
-                      iter: iter,
-                      bit_idx: bit_idx,
-                      bits_per_dim: ctx.bits_per_dim,
-                      n_action_dims: ctx.n_action_dims,
-                      n_bits: ctx.n_bits,
-                      action_range: cfg.action_range,
-                      action_dim_names: cfg.action_dim_names,
-                      bit_predicates: updated
-                    }
-                  )
-
-                  {updated, true}
+                  emit_bit_accepted(ctx, cegar_iter, iter, bit_idx, reward, updated)
+                  updated
               end
             end)
 
@@ -252,7 +428,44 @@ defmodule Synthex.Gym.Mujoco do
     final_preds
   end
 
-  defp optimize_bit(preds, bit_idx, features, ctx, seeds) do
+  @doc """
+  Emit the `[:synthex, :mujoco, :bit_accepted]` telemetry event for
+  an accepted improvement. Public so external orchestrators (Synthex
+  Hub's Oban master) can fire the same event from outside `solve/2`,
+  keeping telemetry handlers (snapshot publishers, dashboards, ...)
+  working uniformly across in-process and distributed runs.
+  """
+  @spec emit_bit_accepted(
+          map(),
+          pos_integer(),
+          pos_integer(),
+          non_neg_integer(),
+          float(),
+          [Synthex.Core.PredProg.predicate()]
+        ) :: :ok
+  def emit_bit_accepted(ctx, cegar_iter, iter, bit_idx, reward, updated_preds) do
+    :telemetry.execute(
+      [:synthex, :mujoco, :bit_accepted],
+      %{reward: reward},
+      %{
+        env_key: ctx.env_key,
+        env_name: ctx.cfg.gym_name,
+        cegar_iter: cegar_iter,
+        iter: iter,
+        bit_idx: bit_idx,
+        bits_per_dim: ctx.bits_per_dim,
+        n_action_dims: ctx.n_action_dims,
+        n_bits: ctx.n_bits,
+        action_range: ctx.cfg.action_range,
+        action_dim_names: ctx.cfg.action_dim_names,
+        bit_predicates: updated_preds
+      }
+    )
+  end
+
+  # ── Internals ─────────────────────────────────────────────────
+
+  defp do_optimize_bit(preds, bit_idx, features, ctx, seeds) do
     atoms = CEGIS.enumerate(features, 0)
     all_d0 = [:truep, :falsep | atoms]
 
@@ -342,42 +555,8 @@ defmodule Synthex.Gym.Mujoco do
     {scored, result["baseline_reward"]}
   end
 
-  defp collect_states(preds, ctx) do
-    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
-
-    request = %{
-      "cmd" => "collect_states",
-      "env_name" => ctx.cfg.gym_name,
-      "bits_per_dim" => ctx.bits_per_dim,
-      "bit_predicates" => serialized_preds,
-      "seeds" => Enum.to_list(0..39),
-      "max_steps" => ctx.max_steps
-    }
-
-    result = call_scorer!(request, ctx)
-    {result["states"], result["n_landings"]}
-  end
-
-  defp validate(preds, seeds, ctx) do
-    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
-
-    request = %{
-      "cmd" => "score_bit",
-      "env_name" => ctx.cfg.gym_name,
-      "bits_per_dim" => ctx.bits_per_dim,
-      "candidates" => [],
-      "bit_predicates" => serialized_preds,
-      "target_bit" => 0,
-      "seeds" => seeds,
-      "max_steps" => ctx.max_steps
-    }
-
-    result = call_scorer!(request, ctx)
-    {result["baseline_reward"], result["baseline_landings"]}
-  end
-
   # Single point of contact with the outside world. The scorer is
-  # whatever the caller plugged in via `solve(..., scorer: ...)`;
+  # whatever the caller plugged in via `init_context(..., scorer: ...)`;
   # `Synthex.Scoring.LocalPython` is the default. Distributed scorers
   # (e.g. `Synthex.Hub.Scorer` from synthex-hub-client) live outside
   # this repo so synthex itself stays HTTP-free.
