@@ -311,7 +311,7 @@ defmodule Synthex.Gym.Oracle do
 
   # ── Learning Logic: Feature Generation ─────────────────────────
 
-  @all_feature_types [:axis, :diag, :sq_diag, :prod, :tridiag]
+  @all_feature_types [:axis, :diag, :sq_diag, :prod, :tridiag, :sin_axis, :cos_axis]
 
   @doc """
   Generate features from raw trajectory states.
@@ -348,12 +348,27 @@ defmodule Synthex.Gym.Oracle do
       :sq_diag -> generate_sq_diag_features(n_dims, max_coeff)
       :prod -> generate_product_features(states, n_dims)
       :tridiag -> generate_tridiag_features(n_dims, tridiag_max_coeff, tridiag_dims)
+      :sin_axis -> generate_sin_axis_features(n_dims)
+      :cos_axis -> generate_cos_axis_features(n_dims)
       other -> raise ArgumentError, "unknown feature type: #{inspect(other)} (known: #{inspect(@all_feature_types)})"
     end)
   end
 
   @doc "All feature classes that `generate_features/2` knows about."
   def all_feature_types, do: @all_feature_types
+
+
+  defp generate_sin_axis_features(n_dims) do
+    for dim <- 0..(n_dims - 1), t <- [-0.9, -0.7, -0.5, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5, 0.7, 0.9] do
+      ["sin_axis", dim, t]
+    end
+  end
+
+  defp generate_cos_axis_features(n_dims) do
+    for dim <- 0..(n_dims - 1), t <- [-0.9, -0.7, -0.5, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5, 0.7, 0.9] do
+      ["cos_axis", dim, t]
+    end
+  end
 
   defp generate_axis_features(states, n_dims) do
     for dim <- 0..(n_dims - 1),

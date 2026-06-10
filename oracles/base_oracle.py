@@ -29,6 +29,12 @@ def eval_feature(feat, state):
         return eval_pred(feat[2], state)
     elif kind == "swap_outcome_neg":
         return not eval_pred(feat[2], state)
+    elif kind == "sin_axis":
+        import math
+        return math.sin(state[feat[1]]) < feat[2]
+    elif kind == "cos_axis":
+        import math
+        return math.cos(state[feat[1]]) < feat[2]
     return False
 
 

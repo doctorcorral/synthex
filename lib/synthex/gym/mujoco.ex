@@ -38,6 +38,24 @@ defmodule Synthex.Gym.Mujoco do
       dim_names: %{0 => "x", 1 => "x_dot", 2 => "theta", 3 => "theta_dot"},
       action_dim_names: %{0 => "force"}
     },
+    inverted_double_pendulum: %{
+      gym_name: "InvertedDoublePendulum-v5",
+      n_action_dims: 1,
+      # Gymnasium 1.x InvertedDoublePendulum-v5 obs (9):
+      #   [cart_x, sin θ1, sin θ2, cos θ1, cos θ2,
+      #    cart_v, θ1_dot, θ2_dot, qfrc_constraint[0]]
+      num_dims: 9,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: %{
+        0 => "cart_x",
+        1 => "sin_t1", 2 => "sin_t2",
+        3 => "cos_t1", 4 => "cos_t2",
+        5 => "cart_v", 6 => "t1_dot", 7 => "t2_dot",
+        8 => "qfrc_c"
+      },
+      action_dim_names: %{0 => "force"}
+    },
     swimmer: %{
       gym_name: "Swimmer-v5",
       n_action_dims: 2,
