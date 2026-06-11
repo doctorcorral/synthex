@@ -149,6 +149,14 @@ defmodule Synthex.Core.PrettyPrint do
     "#{render_coeff(c1)}*obs[#{i}] + #{render_coeff(c2)}*obs[#{j}] + obs[#{k}] < 0"
   end
 
+  defp render_feature(["sin_axis", i, t]) do
+    "sin(obs[#{i}]) < #{render_float(t)}"
+  end
+
+  defp render_feature(["cos_axis", i, t]) do
+    "cos(obs[#{i}]) < #{render_float(t)}"
+  end
+
   defp render_feature(other) do
     # Unknown feature spec — surface it as an opaque comment-marker
     # rather than crashing the whole render.
