@@ -35,6 +35,15 @@ def eval_feature(feat, state):
     elif kind == "cos_axis":
         import math
         return math.cos(state[feat[1]]) < feat[2]
+    elif kind == "wavelet_box":
+        # Haar/box indicator: lo <= obs[i] < hi
+        return feat[2] <= state[feat[1]] < feat[3]
+    elif kind == "wavelet_ricker":
+        # Ricker/Mexican-hat: psi((obs[i]-b)/a) < t,
+        # psi(z) = (1 - z**2) * exp(-z**2 / 2)
+        import math
+        z = (state[feat[1]] - feat[2]) / feat[3]
+        return (1.0 - z * z) * math.exp(-(z * z) / 2.0) < feat[4]
     return False
 
 

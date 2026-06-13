@@ -157,6 +157,14 @@ defmodule Synthex.Core.PrettyPrint do
     "cos(obs[#{i}]) < #{render_float(t)}"
   end
 
+  defp render_feature(["wavelet_box", i, lo, hi]) do
+    "#{render_float(lo)} <= obs[#{i}] < #{render_float(hi)}"
+  end
+
+  defp render_feature(["wavelet_ricker", i, b, a, t]) do
+    "ricker((obs[#{i}] - #{render_float(b)}) / #{render_float(a)}) < #{render_float(t)}"
+  end
+
   defp render_feature(other) do
     # Unknown feature spec — surface it as an opaque comment-marker
     # rather than crashing the whole render.

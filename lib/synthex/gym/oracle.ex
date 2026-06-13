@@ -311,7 +311,7 @@ defmodule Synthex.Gym.Oracle do
 
   # ── Learning Logic: Feature Generation ─────────────────────────
 
-  @all_feature_types [:axis, :diag, :sq_diag, :prod, :tridiag, :sin_axis, :cos_axis]
+  @all_feature_types [:axis, :diag, :sq_diag, :prod, :tridiag, :sin_axis, :cos_axis, :wavelet_box, :wavelet_ricker]
 
   @doc """
   Generate features from raw trajectory states.
@@ -350,6 +350,8 @@ defmodule Synthex.Gym.Oracle do
       :tridiag -> generate_tridiag_features(n_dims, tridiag_max_coeff, tridiag_dims)
       :sin_axis -> generate_sin_axis_features(n_dims)
       :cos_axis -> generate_cos_axis_features(n_dims)
+      :wavelet_box -> generate_wavelet_box_features(states, n_dims)
+      :wavelet_ricker -> generate_wavelet_ricker_features(states, n_dims)
       other -> raise ArgumentError, "unknown feature type: #{inspect(other)} (known: #{inspect(@all_feature_types)})"
     end)
   end
@@ -367,6 +369,65 @@ defmodule Synthex.Gym.Oracle do
   defp generate_cos_axis_features(n_dims) do
     for dim <- 0..(n_dims - 1), t <- [-0.9, -0.7, -0.5, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5, 0.7, 0.9] do
       ["cos_axis", dim, t]
+    end
+  end
+
+  # ── Wavelet / localized features ──────────────────────────────────
+  #
+  # Unlike the global hyperplane/periodic classes above, these respond
+  # only inside a bounded region, so one predicate can carve a localized
+  # pocket without spending compositional depth. Candidates are placed
+  # from the observed per-dim distribution (centers = percentiles, scales
+  # = dyadic fractions of the interdecile spread) so a wavelet actually
+  # sits where the policy visits state space — mirroring how axis/prod
+  # thresholds are derived rather than using an arbitrary fixed grid.
+
+  # Haar/box indicator: TRUE inside [lo, hi). Encoded ["wavelet_box", dim, lo, hi].
+  defp generate_wavelet_box_features(states, n_dims) do
+    for dim <- 0..(n_dims - 1),
+        {lo, hi} <- wavelet_intervals(states, dim) do
+      ["wavelet_box", dim, lo, hi]
+    end
+  end
+
+  defp wavelet_intervals(states, dim) do
+    vals = Enum.map(states, fn s -> Enum.at(s, dim) end)
+    centers = percentile_values(vals, [10, 25, 50, 75, 90])
+    spread = dim_spread(vals)
+
+    for c <- centers, frac <- [0.5, 0.25, 0.125], w = spread * frac, w > 0 do
+      {Float.round((c - w / 2) * 1.0, 6), Float.round((c + w / 2) * 1.0, 6)}
+    end
+    |> Enum.uniq()
+  end
+
+  # Ricker / Mexican-hat bump psi((obs[dim]-b)/a) < t, where
+  # psi(z) = (1 - z^2) e^(-z^2/2). Encoded ["wavelet_ricker", dim, b, a, t].
+  defp generate_wavelet_ricker_features(states, n_dims) do
+    for dim <- 0..(n_dims - 1),
+        {b, a} <- wavelet_scales(states, dim),
+        t <- [0.0, 0.4, 0.8] do
+      ["wavelet_ricker", dim, b, a, t]
+    end
+  end
+
+  defp wavelet_scales(states, dim) do
+    vals = Enum.map(states, fn s -> Enum.at(s, dim) end)
+    centers = percentile_values(vals, [10, 25, 50, 75, 90])
+    spread = dim_spread(vals)
+
+    for b <- centers, frac <- [0.5, 0.25], a = spread * frac, a > 0 do
+      {Float.round(b * 1.0, 6), Float.round(a * 1.0, 6)}
+    end
+    |> Enum.uniq()
+  end
+
+  # Interdecile spread (p90 - p10), floored so a near-constant dimension
+  # still yields a usable (tiny but positive) scale instead of zero.
+  defp dim_spread(vals) do
+    case percentile_values(vals, [10, 90]) do
+      [p10, p90] -> max((p90 - p10) * 1.0, 1.0e-6)
+      _ -> 1.0
     end
   end
 
@@ -544,6 +605,23 @@ defmodule Synthex.Gym.Oracle do
   def eval_pred({:feat, ["diag", i, j, c]}, state), do: c * Enum.at(state, i) + Enum.at(state, j) < 0
   def eval_pred({:feat, ["sq_diag", i, j, c]}, state), do: c * Enum.at(state, i) * Enum.at(state, i) + Enum.at(state, j) < 0
   def eval_pred({:feat, ["prod", i, j, t]}, state), do: Enum.at(state, i) * Enum.at(state, j) < t
+
+  def eval_pred({:feat, ["tridiag", i, j, k, c1, c2]}, state),
+    do: c1 * Enum.at(state, i) + c2 * Enum.at(state, j) + Enum.at(state, k) < 0
+
+  def eval_pred({:feat, ["sin_axis", dim, t]}, state), do: :math.sin(Enum.at(state, dim)) < t
+  def eval_pred({:feat, ["cos_axis", dim, t]}, state), do: :math.cos(Enum.at(state, dim)) < t
+
+  def eval_pred({:feat, ["wavelet_box", dim, lo, hi]}, state) do
+    v = Enum.at(state, dim)
+    v >= lo and v < hi
+  end
+
+  def eval_pred({:feat, ["wavelet_ricker", dim, b, a, t]}, state) do
+    z = (Enum.at(state, dim) - b) / a
+    (1.0 - z * z) * :math.exp(-(z * z) / 2.0) < t
+  end
+
   def eval_pred({:not, p}, state), do: not eval_pred(p, state)
   def eval_pred({:and, p, q}, state), do: eval_pred(p, state) and eval_pred(q, state)
   def eval_pred({:or, p, q}, state), do: eval_pred(p, state) or eval_pred(q, state)
