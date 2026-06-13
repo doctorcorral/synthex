@@ -140,6 +140,26 @@ defmodule Synthex.Gym.Mujoco do
         6 => "hip_4", 7 => "ankle_4"
       }
     },
+    # Warp-physics Ant. A distinct "legit environment" (its own lineage,
+    # scored by MuJoCo Warp): obs = qpos[2:]=13 + qvel=14 = 27 (no contact
+    # forces), reward = forward x-velocity + healthy bonus - ctrl cost.
+    # gym_name IS the warp_core.ENV_SPECS key so score batches carry
+    # "Ant-warp-v5" and the GPU worker takes the Warp path instead of its
+    # CPU fallback. Pair with `"adapter": "mujoco_warp"` in the config.
+    ant_warp: %{
+      gym_name: "Ant-warp-v5",
+      n_action_dims: 8,
+      num_dims: 27,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      dim_names: (for i <- 0..26, into: %{}, do: {i, "d#{i}"}),
+      action_dim_names: %{
+        0 => "hip_1", 1 => "ankle_1",
+        2 => "hip_2", 3 => "ankle_2",
+        4 => "hip_3", 5 => "ankle_3",
+        6 => "hip_4", 7 => "ankle_4"
+      }
+    },
     humanoid: %{
       gym_name: "Humanoid-v5",
       n_action_dims: 17,
