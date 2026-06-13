@@ -513,64 +513,66 @@ defmodule Synthex.Gym.Mujoco do
     all_d0 = [:truep, :falsep | atoms]
 
     {scored_d0, baseline} = score_bit_candidates(all_d0, preds, bit_idx, seeds, ctx)
-    best_d0 = Enum.max_by(scored_d0, fn {_i, r, _l} -> r end, fn -> nil end)
 
-    d0_result =
-      case best_d0 do
-        nil -> nil
-        {idx, reward, _count} ->
-          if reward > baseline do
-            {Enum.at(all_d0, idx), reward, scored_d0}
-          else
-            nil
-          end
-      end
+    # Iterative deepening: starting from depth-0 atoms, each level composes the
+    # top-k predicates of the previous level into one more AND/OR/NOT layer and
+    # rescores them. `ctx.depth` is the number of composition levels, so
+    # depth=1 yields one layer of pairs (classic behaviour) and depth=2 yields
+    # compositions of those pairs (genuine depth-2 predicates). top_k pruning
+    # at each level keeps the candidate pool bounded as depth grows.
+    {best_pred, best_reward} = best_of(all_d0, scored_d0)
 
-    if ctx.depth == 0 do
-      case d0_result do
-        nil -> nil
-        {p, r, _} -> {p, r, baseline}
-      end
-    else
-      top_atoms =
-        scored_d0
-        |> Enum.sort_by(fn {_idx, r, _l} -> -r end)
-        |> Enum.take(ctx.top_k)
-        |> Enum.map(fn {idx, _r, _l} -> Enum.at(all_d0, idx) end)
-        |> Enum.reject(fn p -> p == :truep or p == :falsep end)
+    {_pool, _scored, best_pred, best_reward} =
+      Enum.reduce(1..ctx.depth//1, {all_d0, scored_d0, best_pred, best_reward}, fn _level,
+                                                                                   {pool, scored,
+                                                                                    bp, br} ->
+        blocks =
+          scored
+          |> Enum.sort_by(fn {_idx, r, _l} -> -r end)
+          |> Enum.take(ctx.top_k)
+          |> Enum.map(fn {idx, _r, _l} -> Enum.at(pool, idx) end)
+          |> Enum.reject(fn p -> p == :truep or p == :falsep end)
 
-      negations = Enum.map(top_atoms, fn p -> {:not, p} end)
-      d1_candidates =
-        (for p <- top_atoms, q <- top_atoms, p != q, do: {:and, p, q}) ++
-        (for p <- top_atoms, q <- top_atoms, p != q, do: {:or, p, q}) ++
-        (for p <- negations, q <- top_atoms, do: {:and, p, q})
-      d1_candidates = Enum.uniq(d1_candidates)
+        case build_compositions(blocks) do
+          [] ->
+            {pool, scored, bp, br}
 
-      {scored_d1, _} = score_bit_candidates(d1_candidates, preds, bit_idx, seeds, ctx)
-      best_d1 = Enum.max_by(scored_d1, fn {_i, r, _l} -> r end, fn -> nil end)
+          next_pool ->
+            {scored_next, _} = score_bit_candidates(next_pool, preds, bit_idx, seeds, ctx)
+            {np_pred, np_reward} = best_of(next_pool, scored_next)
 
-      threshold = case d0_result do
-        nil -> baseline
-        {_, r, _} -> r
-      end
-
-      case best_d1 do
-        nil ->
-          case d0_result do
-            nil -> nil
-            {p, r, _} -> {p, r, baseline}
-          end
-        {idx, reward, _count} ->
-          if reward > threshold do
-            {Enum.at(d1_candidates, idx), reward, baseline}
-          else
-            case d0_result do
-              nil -> nil
-              {p, r, _} -> {p, r, baseline}
+            if is_number(np_reward) and (br == nil or np_reward > br) do
+              {next_pool, scored_next, np_pred, np_reward}
+            else
+              {next_pool, scored_next, bp, br}
             end
-          end
-      end
+        end
+      end)
+
+    cond do
+      not is_number(best_reward) -> nil
+      best_reward > baseline -> {best_pred, best_reward, baseline}
+      true -> nil
     end
+  end
+
+  # Best-scoring candidate of a (pool, scored) pair as {predicate, reward}, or
+  # {nil, nil} when nothing scored.
+  defp best_of(pool, scored) do
+    case Enum.max_by(scored, fn {_i, r, _l} -> r end, fn -> nil end) do
+      nil -> {nil, nil}
+      {idx, reward, _count} -> {Enum.at(pool, idx), reward}
+    end
+  end
+
+  # One AND/OR/NOT composition layer over a set of building-block predicates.
+  defp build_compositions(blocks) do
+    negations = Enum.map(blocks, fn p -> {:not, p} end)
+
+    ((for p <- blocks, q <- blocks, p != q, do: {:and, p, q}) ++
+       (for p <- blocks, q <- blocks, p != q, do: {:or, p, q}) ++
+       (for p <- negations, q <- blocks, do: {:and, p, q}))
+    |> Enum.uniq()
   end
 
   defp score_bit_candidates(candidates, preds, target_bit, seeds, ctx) do
