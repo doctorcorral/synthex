@@ -38,6 +38,23 @@ defmodule Synthex.Gym.Mujoco do
       dim_names: %{0 => "x", 1 => "x_dot", 2 => "theta", 3 => "theta_dot"},
       action_dim_names: %{0 => "force"}
     },
+    # Classic-control Pendulum swing-up. NOT a MuJoCo env — gym.make
+    # builds it from gymnasium's classic_control, and the generic
+    # bit-quantized continuous-action path drives it like any other.
+    # Chosen to probe where localized (wavelet) features beat smooth
+    # polynomial feedback: the swing-up phase is non-monotonic /
+    # region-dependent (energy pumping) where a single threshold or
+    # low-degree polynomial cannot express "torque one way inside this
+    # angle/velocity band, the other way outside it".
+    pendulum_v1: %{
+      gym_name: "Pendulum-v1",
+      n_action_dims: 1,
+      num_dims: 3,
+      max_steps: 200,
+      action_range: {-2.0, 2.0},
+      dim_names: %{0 => "cos_t", 1 => "sin_t", 2 => "omega"},
+      action_dim_names: %{0 => "torque"}
+    },
     inverted_double_pendulum: %{
       gym_name: "InvertedDoublePendulum-v5",
       n_action_dims: 1,
