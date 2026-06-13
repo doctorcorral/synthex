@@ -320,8 +320,15 @@ defmodule Synthex.Gym.Mujoco do
 
   Returns:
 
-    * `{:improved, new_pred, reward}` — `new_pred` beats `preds[bit_idx]`
-      on `seeds`; reward is its mean episode return.
+    * `{:improved, new_pred, reward, baseline}` — `new_pred` beats
+      `preds[bit_idx]` on `seeds`; `reward` is its summed return over
+      `seeds` and `baseline` is the *current* predicate vector's
+      summed return measured on the **same** `seeds` in the same
+      batch. Returning `baseline` lets an orchestrator's commit gate
+      do an apples-to-apples, same-seed monotonicity check instead of
+      comparing against a stale cross-seed high-water-mark (which is
+      biased upward by max-selection and miscalibrated when
+      `n_episodes` changes between sessions).
     * `:no_improvement` — no candidate strictly improves over the
       baseline.
 
@@ -336,11 +343,12 @@ defmodule Synthex.Gym.Mujoco do
           map(),
           [non_neg_integer()]
         ) ::
-          {:improved, Synthex.Core.PredProg.predicate(), float()} | :no_improvement
+          {:improved, Synthex.Core.PredProg.predicate(), float(), float()}
+          | :no_improvement
   def optimize_bit(preds, bit_idx, features, ctx, seeds) do
     case do_optimize_bit(preds, bit_idx, features, ctx, seeds) do
       nil -> :no_improvement
-      {new_pred, reward} -> {:improved, new_pred, reward}
+      {new_pred, reward, baseline} -> {:improved, new_pred, reward, baseline}
     end
   end
 
@@ -423,7 +431,7 @@ defmodule Synthex.Gym.Mujoco do
                   IO.puts("    No improvement")
                   ps
 
-                {:improved, new_pred, reward} ->
+                {:improved, new_pred, reward, _baseline} ->
                   IO.puts("    reward=#{Float.round(reward, 1)}")
                   updated = List.replace_at(ps, bit_idx, new_pred)
                   emit_bit_accepted(ctx, cegar_iter, iter, bit_idx, reward, updated)
@@ -504,7 +512,7 @@ defmodule Synthex.Gym.Mujoco do
     if ctx.depth == 0 do
       case d0_result do
         nil -> nil
-        {p, r, _} -> {p, r}
+        {p, r, _} -> {p, r, baseline}
       end
     else
       top_atoms =
@@ -533,15 +541,15 @@ defmodule Synthex.Gym.Mujoco do
         nil ->
           case d0_result do
             nil -> nil
-            {p, r, _} -> {p, r}
+            {p, r, _} -> {p, r, baseline}
           end
         {idx, reward, _count} ->
           if reward > threshold do
-            {Enum.at(d1_candidates, idx), reward}
+            {Enum.at(d1_candidates, idx), reward, baseline}
           else
             case d0_result do
               nil -> nil
-              {p, r, _} -> {p, r}
+              {p, r, _} -> {p, r, baseline}
             end
           end
       end
