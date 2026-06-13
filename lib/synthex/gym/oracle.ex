@@ -395,7 +395,7 @@ defmodule Synthex.Gym.Oracle do
     centers = percentile_values(vals, [10, 25, 50, 75, 90])
     spread = dim_spread(vals)
 
-    for c <- centers, frac <- [0.5, 0.25, 0.125], w = spread * frac, w > 0 do
+    for c <- centers, frac <- [0.5, 0.25, 0.125], w = Float.round(spread * frac, 6), w > 0 do
       {Float.round((c - w / 2) * 1.0, 6), Float.round((c + w / 2) * 1.0, 6)}
     end
     |> Enum.uniq()
@@ -416,8 +416,14 @@ defmodule Synthex.Gym.Oracle do
     centers = percentile_values(vals, [10, 25, 50, 75, 90])
     spread = dim_spread(vals)
 
-    for b <- centers, frac <- [0.5, 0.25], a = spread * frac, a > 0 do
-      {Float.round(b * 1.0, 6), Float.round(a * 1.0, 6)}
+    # Round the scale BEFORE the positivity guard: a near-constant
+    # dimension floors `spread` at 1.0e-6, so `spread * 0.25 = 2.5e-7`
+    # passes `a > 0` but `Float.round(_, 6)` collapses it to 0.0,
+    # emitting a `["wavelet_ricker", dim, b, 0.0, t]` that divides by
+    # zero in the scorer and yields a NaN/null reward. Guarding the
+    # rounded value drops the degenerate scale at the source.
+    for b <- centers, frac <- [0.5, 0.25], a = Float.round(spread * frac, 6), a > 0 do
+      {Float.round(b * 1.0, 6), a}
     end
     |> Enum.uniq()
   end

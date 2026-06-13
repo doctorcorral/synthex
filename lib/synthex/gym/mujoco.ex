@@ -565,12 +565,27 @@ defmodule Synthex.Gym.Mujoco do
 
     result = call_scorer!(request, ctx)
 
+    # Drop candidates whose reward came back non-numeric. A worker
+    # returns `null` (decoded here as `nil`) when a candidate could
+    # not be scored — e.g. a degenerate predicate that makes the
+    # rollout produce a NaN return. Such an entry must never reach
+    # `Enum.max_by`/`Enum.sort_by` below: in Erlang term order atoms
+    # sort above numbers, so a `nil` reward would be mis-selected as
+    # the maximum, and `-nil` in the depth-1 sort raises
+    # `bad argument in arithmetic expression`. Filtering keeps
+    # selection honest and robust to any unscorable candidate.
     scored =
-      Enum.map(result["scores"] || [], fn s ->
-        {s["idx"], s["reward"], Map.get(s, "landings", 0)}
-      end)
+      (result["scores"] || [])
+      |> Enum.map(fn s -> {s["idx"], s["reward"], Map.get(s, "landings", 0)} end)
+      |> Enum.filter(fn {_idx, r, _l} -> is_number(r) end)
 
-    {scored, result["baseline_reward"]}
+    baseline =
+      case result["baseline_reward"] do
+        r when is_number(r) -> r
+        _ -> 0.0
+      end
+
+    {scored, baseline}
   end
 
   # Single point of contact with the outside world. The scorer is
