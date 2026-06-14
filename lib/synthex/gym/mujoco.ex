@@ -152,12 +152,34 @@ defmodule Synthex.Gym.Mujoco do
       num_dims: 27,
       max_steps: 1000,
       action_range: {-1.0, 1.0},
+      success_threshold: 1000.0,
       dim_names: (for i <- 0..26, into: %{}, do: {i, "d#{i}"}),
       action_dim_names: %{
         0 => "hip_1", 1 => "ankle_1",
         2 => "hip_2", 3 => "ankle_2",
         4 => "hip_3", 5 => "ankle_3",
         6 => "hip_4", 7 => "ankle_4"
+      },
+      # Declarative Warp physics descriptor — the GPU worker reconstructs
+      # obs/reward/termination from this, so no baked ENV_SPEC is needed.
+      warp: %{
+        "base_env" => "Ant-v5",
+        "frame_skip" => 5,
+        "needs" => [],
+        "obs" => %{"type" => "exclude_xy"},
+        "reward" => %{
+          "type" => "locomotion",
+          "forward_weight" => 1.0,
+          "ctrl_weight" => 0.5,
+          "healthy_reward" => 1.0,
+          "x_index" => 0,
+          "dt" => 0.05,
+          "z_idx" => 2,
+          "z_lo" => 0.2,
+          "z_hi" => 1.0
+        },
+        "terminated" => %{"type" => "z_healthy", "z_idx" => 2, "z_lo" => 0.2, "z_hi" => 1.0},
+        "reset_noise_scale" => 0.1
       }
     },
     humanoid: %{
@@ -252,6 +274,38 @@ defmodule Synthex.Gym.Mujoco do
     }
   end
 
+  # Self-describing environment spec shipped to the worker in every
+  # request. This is what lets a brand-new environment run on existing
+  # workers with NO rebuild: the hub is the single source of truth and
+  # pushes the scalars (action dims/range/steps) plus, for Warp envs, a
+  # declarative obs/reward/termination descriptor the worker interprets
+  # generically. Workers fall back to their baked tables only when this
+  # field is absent (older hubs).
+  defp env_spec(ctx) do
+    cfg = ctx.cfg
+    {lo, hi} = cfg.action_range
+
+    base = %{
+      "n_action_dims" => cfg.n_action_dims,
+      "action_low" => lo,
+      "action_high" => hi,
+      "max_steps" => ctx.max_steps
+    }
+
+    base =
+      case Map.get(cfg, :success_threshold) do
+        nil -> base
+        thr -> Map.put(base, "success_threshold", thr)
+      end
+
+    # Warp envs carry a declarative physics descriptor (base gym model +
+    # obs/reward/termination rules) the GPU worker reconstructs.
+    case Map.get(cfg, :warp) do
+      nil -> base
+      warp_desc when is_map(warp_desc) -> Map.merge(base, warp_desc)
+    end
+  end
+
   @doc """
   Initial predicate vector for a fresh run. All bits start as
   `:falsep` (every action dimension off → zero output).
@@ -273,6 +327,7 @@ defmodule Synthex.Gym.Mujoco do
     request = %{
       "cmd" => "collect_states",
       "env_name" => ctx.cfg.gym_name,
+      "env_spec" => env_spec(ctx),
       "bits_per_dim" => ctx.bits_per_dim,
       "bit_predicates" => serialized_preds,
       "seeds" => Enum.to_list(0..39),
@@ -402,6 +457,7 @@ defmodule Synthex.Gym.Mujoco do
     request = %{
       "cmd" => "score_bit",
       "env_name" => ctx.cfg.gym_name,
+      "env_spec" => env_spec(ctx),
       "bits_per_dim" => ctx.bits_per_dim,
       "candidates" => [],
       "bit_predicates" => serialized_preds,
@@ -602,6 +658,7 @@ defmodule Synthex.Gym.Mujoco do
     request = %{
       "cmd" => "score_bit",
       "env_name" => ctx.cfg.gym_name,
+      "env_spec" => env_spec(ctx),
       "bits_per_dim" => ctx.bits_per_dim,
       "candidates" => serialized_candidates,
       "bit_predicates" => serialized_preds,
