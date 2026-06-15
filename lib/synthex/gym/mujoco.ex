@@ -247,6 +247,14 @@ defmodule Synthex.Gym.Mujoco do
     cegar_rounds = Keyword.get(opts, :cegar_rounds, 3)
     feature_types = Keyword.get(opts, :feature_types, GymOracle.all_feature_types())
 
+    # Pluggable counterexample source for each CEGAR step. `:random` is
+    # the default and reproduces the historical behaviour exactly
+    # (on-policy `collect_states` + deterministic `seeds_for`). `:ga_qd`
+    # swaps in the adversarial quality-diversity verifier. See
+    # `Synthex.Verifier` and docs/ga-counterexample-verifier.md.
+    verifier = normalize_verifier(Keyword.get(opts, :verifier, :random))
+    verifier_opts = Keyword.get(opts, :verifier_opts, %{}) || %{}
+
     # Pluggable oracle invocation. Defaults to `Synthex.Scoring.LocalPython`,
     # which forks a Python interpreter via `System.cmd`. To distribute,
     # plug in `Synthex.Hub.Scorer` from the synthex-hub client lib.
@@ -270,9 +278,16 @@ defmodule Synthex.Gym.Mujoco do
       max_iters: max_iters,
       cegar_rounds: cegar_rounds,
       feature_types: feature_types,
+      verifier: verifier,
+      verifier_opts: verifier_opts,
       scorer: scorer
     }
   end
+
+  defp normalize_verifier(v) when v in [:random, :ga_qd], do: v
+  defp normalize_verifier("random"), do: :random
+  defp normalize_verifier("ga_qd"), do: :ga_qd
+  defp normalize_verifier(_), do: :random
 
   # Self-describing environment spec shipped to the worker in every
   # request. This is what lets a brand-new environment run on existing
@@ -320,8 +335,9 @@ defmodule Synthex.Gym.Mujoco do
   `preds`; the only side effect is whatever the scorer does
   (HTTP, Python subprocess, etc.).
   """
-  @spec collect_states([Synthex.Core.PredProg.predicate()], map()) :: {[list()], non_neg_integer()}
-  def collect_states(preds, ctx) do
+  @spec collect_states([Synthex.Core.PredProg.predicate()], map(), [non_neg_integer()]) ::
+          {[list()], non_neg_integer()}
+  def collect_states(preds, ctx, seeds \\ Enum.to_list(0..39)) do
     serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
 
     request = %{
@@ -330,7 +346,7 @@ defmodule Synthex.Gym.Mujoco do
       "env_spec" => env_spec(ctx),
       "bits_per_dim" => ctx.bits_per_dim,
       "bit_predicates" => serialized_preds,
-      "seeds" => Enum.to_list(0..39),
+      "seeds" => seeds,
       "max_steps" => ctx.max_steps
     }
 
@@ -468,6 +484,40 @@ defmodule Synthex.Gym.Mujoco do
 
     result = call_scorer!(request, ctx)
     {result["baseline_reward"], result["baseline_landings"]}
+  end
+
+  @doc """
+  Adversarial regret probe for the GA-QD verifier.
+
+  For each seed, the worker resets the env, follows the current policy,
+  and at the initial state measures the *single-bit-flip regret*: the best
+  improvement in return-to-go achievable by flipping exactly one action
+  bit (the local move the CEGAR commit-gate itself makes). Returns, per
+  seed, `%{"seed", "regret", "best_bit", "descriptor"}` where `descriptor`
+  is a low-dimensional behavioural fingerprint (a subset of the initial
+  observation) used for quality-diversity binning.
+
+  This reuses the rollout machinery already in the scorer; it is only
+  emitted when `ctx.verifier == :ga_qd`, so default runs never call it.
+  """
+  @spec eval_regret([non_neg_integer()], [Synthex.Core.PredProg.predicate()], map()) :: [map()]
+  def eval_regret(seeds, preds, ctx) do
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+    horizon = Map.get(ctx.verifier_opts, "regret_horizon", min(ctx.max_steps, 100))
+
+    request = %{
+      "cmd" => "eval_regret",
+      "env_name" => ctx.cfg.gym_name,
+      "env_spec" => env_spec(ctx),
+      "bits_per_dim" => ctx.bits_per_dim,
+      "bit_predicates" => serialized_preds,
+      "seeds" => seeds,
+      "horizon" => horizon,
+      "max_steps" => ctx.max_steps
+    }
+
+    result = call_scorer!(request, ctx)
+    result["regrets"] || []
   end
 
   @doc """
