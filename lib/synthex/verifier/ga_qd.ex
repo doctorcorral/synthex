@@ -25,6 +25,25 @@ defmodule Synthex.Verifier.GAQD do
   initial-state overrides in the scorer) are a documented follow-up; the
   `Synthex.Verifier` seam means that upgrade won't touch any caller.
 
+  ## Blend scoring (objective preservation)
+
+  Synthex's objective is *average* return over the random start-state
+  distribution. Scoring candidates only on the hardest seeds optimizes
+  worst-case instead, which empirically tanks the validation average
+  (the role of a counterexample is to focus the *hypothesis space*, not
+  to redefine the objective the commit-gate protects). So the scoring
+  set is a **blend**: a `elite_frac` fraction of the `n_episodes`
+  scoring seeds are replaced by elite adversarial seeds, the rest stay
+  standard. The seed *count* is held at exactly `n_episodes` so the
+  dashboard's `sum / n_episodes` per-episode metric stays correct.
+
+  The single `elite_frac` knob spans the spectrum:
+
+    * `0.0` — standard scoring (features still adversarial)
+    * `0.25` (default) — blend: average-case dominates, counterexamples
+      add pressure
+    * `1.0` — pure adversarial (scores only on elite seeds)
+
   Robustness: if the worker does not support `eval_regret` (older image),
   the step transparently falls back to `Synthex.Verifier.RandomSeeds`.
   """
@@ -42,10 +61,16 @@ defmodule Synthex.Verifier.GAQD do
   @impl true
   def supply(preds, ctx, round) do
     opts = ctx.verifier_opts || %{}
-    n_out = opt(opts, "n_seeds", ctx.n_episodes)
-    pool = opt(opts, "pool_size", max(n_out * 4, 32))
+    n_total = opt(opts, "n_seeds", ctx.n_episodes)
+    pool = opt(opts, "pool_size", max(n_total * 4, 32))
     generations = opt(opts, "generations", 4)
     bin_width = optf(opts, "bin_width", 0.5)
+    elite_frac = clampf(optf(opts, "elite_frac", 0.25), 0.0, 1.0)
+
+    # How many of the n_total scoring seeds are adversarial. Count is
+    # held fixed at n_total so per-episode reward (sum / n_episodes)
+    # stays correct on the dashboard.
+    k_elite = trunc(Float.round(n_total * elite_frac))
 
     rng = :rand.seed_s(:exsss, {round, pool, generations})
 
@@ -62,23 +87,31 @@ defmodule Synthex.Verifier.GAQD do
         |> Map.values()
         |> Enum.sort_by(& &1["regret"], :desc)
 
-      elite_seeds =
-        elites
-        |> Enum.map(& &1["seed"])
-        |> Enum.take(n_out)
-        |> pad_seeds(n_out)
+      elite_seeds = elites |> Enum.map(& &1["seed"]) |> Enum.take(k_elite)
 
-      {states, _} = Mujoco.collect_states(preds, ctx, elite_seeds)
+      # Blend: keep n_total - k_elite standard seeds, swap in k_elite
+      # adversarial ones. Dedup then pad back to exactly n_total.
+      standard = Mujoco.seeds_for(round, 1, ctx)
+
+      score_seeds =
+        (Enum.take(standard, max(n_total - length(elite_seeds), 0)) ++ elite_seeds)
+        |> Enum.uniq()
+        |> pad_seeds(n_total)
+
+      # Features come from trajectories of the (blended) scoring seeds so
+      # the predicate vocabulary sees the adversarial states too.
+      {states, _} = Mujoco.collect_states(preds, ctx, score_seeds)
 
       Logger.info(
         "[Verifier.GAQD] round #{round}: #{map_size(archive)} QD cells, " <>
-          "top regret=#{top_regret(elites)}, #{length(elite_seeds)} elite seeds"
+          "top regret=#{top_regret(elites)}, #{length(elite_seeds)}/#{n_total} " <>
+          "adversarial scoring seeds (elite_frac=#{elite_frac})"
       )
 
       %{
         states: states,
-        seeds: elite_seeds,
-        counterexamples: Enum.take(elites, n_out)
+        seeds: score_seeds,
+        counterexamples: Enum.take(elites, max(k_elite, 1))
       }
     rescue
       e ->
@@ -142,4 +175,6 @@ defmodule Synthex.Verifier.GAQD do
       _ -> default
     end
   end
+
+  defp clampf(x, lo, hi), do: x |> max(lo) |> min(hi)
 end
