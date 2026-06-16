@@ -247,6 +247,19 @@ defmodule Synthex.Gym.Mujoco do
     cegar_rounds = Keyword.get(opts, :cegar_rounds, 3)
     feature_types = Keyword.get(opts, :feature_types, GymOracle.all_feature_types())
 
+    # Hard cap on the per-bit candidate pool scored in one batch. The
+    # depth-0 atom enumeration scales with feature combinatorics
+    # (feature_types × coeff range × dims) and is otherwise UNBOUNDED:
+    # a tridiag/high-coeff config can emit 10^5 candidates, which the
+    # hub turns into 10^4 queue rows per bit — the root cause of every
+    # DB-saturation failure (enqueue floods, fat result fetches,
+    # statement timeouts). Capping deterministically sub-samples the
+    # pool so cost is bounded regardless of feature math; a reliably
+    # scored pool of `max_candidates` beats an unbounded pool that
+    # crashes and commits nothing. Raise it as worker capacity grows.
+    # `0`/negative disables the cap (legacy unbounded behaviour).
+    max_candidates = Keyword.get(opts, :max_candidates, 8000)
+
     # Pluggable counterexample source for each CEGAR step. `:random` is
     # the default and reproduces the historical behaviour exactly
     # (on-policy `collect_states` + deterministic `seeds_for`). `:ga_qd`
@@ -278,6 +291,7 @@ defmodule Synthex.Gym.Mujoco do
       max_iters: max_iters,
       cegar_rounds: cegar_rounds,
       feature_types: feature_types,
+      max_candidates: max_candidates,
       verifier: verifier,
       verifier_opts: verifier_opts,
       scorer: scorer
@@ -636,7 +650,7 @@ defmodule Synthex.Gym.Mujoco do
 
   defp do_optimize_bit(preds, bit_idx, features, ctx, seeds) do
     atoms = CEGIS.enumerate(features, 0)
-    all_d0 = [:truep, :falsep | atoms]
+    all_d0 = cap_pool([:truep, :falsep | atoms], Map.get(ctx, :max_candidates, 8000))
 
     {scored_d0, baseline} = score_bit_candidates(all_d0, preds, bit_idx, seeds, ctx)
 
@@ -663,7 +677,8 @@ defmodule Synthex.Gym.Mujoco do
           [] ->
             {pool, scored, bp, br}
 
-          next_pool ->
+          composed ->
+            next_pool = cap_pool(composed, Map.get(ctx, :max_candidates, 8000))
             {scored_next, _} = score_bit_candidates(next_pool, preds, bit_idx, seeds, ctx)
             {np_pred, np_reward} = best_of(next_pool, scored_next)
 
@@ -690,6 +705,26 @@ defmodule Synthex.Gym.Mujoco do
       {idx, reward, _count} -> {Enum.at(pool, idx), reward}
     end
   end
+
+  # Bound a candidate pool to at most `max` entries. The always-useful
+  # anchors (`:truep`/`:falsep`) are kept unconditionally; the rest are
+  # sub-sampled by a stable hash ordering (`:erlang.phash2`) so the
+  # selection is deterministic and reproducible across runs (no RNG
+  # seeding needed) yet spread pseudo-uniformly over the enumeration.
+  # This is the single guard that keeps per-bit batch size — and thus
+  # queue rows, insert load, and result-fetch egress — bounded
+  # regardless of feature combinatorics.
+  defp cap_pool(pool, max) when is_integer(max) and max > 0 do
+    if length(pool) <= max do
+      pool
+    else
+      {anchors, rest} = Enum.split_with(pool, &(&1 == :truep or &1 == :falsep))
+      keep = Kernel.max(max - length(anchors), 0)
+      anchors ++ (rest |> Enum.sort_by(&:erlang.phash2/1) |> Enum.take(keep))
+    end
+  end
+
+  defp cap_pool(pool, _), do: pool
 
   # One AND/OR/NOT composition layer over a set of building-block predicates.
   defp build_compositions(blocks) do
