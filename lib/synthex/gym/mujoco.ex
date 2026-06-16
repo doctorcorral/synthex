@@ -501,6 +501,40 @@ defmodule Synthex.Gym.Mujoco do
   end
 
   @doc """
+  Like `validate/3`, but also returns the per-seed (per-episode)
+  returns so the caller can compute tail/robustness statistics
+  (worst-decile, CVaR, min) — not just the mean. Requests per-seed
+  data via the `want_per_seed` flag; a worker too old to honour it
+  simply omits the list, in which case `per_seed` is `nil` and the
+  caller falls back to mean-only.
+
+  Returns `{total_reward, n_survived, per_seed}` where `per_seed` is a
+  list of per-episode returns in `seeds` order, or `nil` if the scorer
+  didn't provide it.
+  """
+  @spec validate_detailed([Synthex.Core.PredProg.predicate()], [non_neg_integer()], map()) ::
+          {float(), non_neg_integer(), [float()] | nil}
+  def validate_detailed(preds, seeds, ctx) do
+    serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+
+    request = %{
+      "cmd" => "score_bit",
+      "env_name" => ctx.cfg.gym_name,
+      "env_spec" => env_spec(ctx),
+      "bits_per_dim" => ctx.bits_per_dim,
+      "candidates" => [],
+      "bit_predicates" => serialized_preds,
+      "target_bit" => 0,
+      "seeds" => seeds,
+      "max_steps" => ctx.max_steps,
+      "want_per_seed" => true
+    }
+
+    result = call_scorer!(request, ctx)
+    {result["baseline_reward"], result["baseline_landings"], result["baseline_per_seed"]}
+  end
+
+  @doc """
   Adversarial regret probe for the GA-QD verifier.
 
   For each seed, the worker resets the env, follows the current policy,
