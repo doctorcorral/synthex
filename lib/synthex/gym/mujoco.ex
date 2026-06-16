@@ -268,6 +268,14 @@ defmodule Synthex.Gym.Mujoco do
     verifier = normalize_verifier(Keyword.get(opts, :verifier, :random))
     verifier_opts = Keyword.get(opts, :verifier_opts, %{}) || %{}
 
+    # Replicate seed. 0 (default) reproduces the historical deterministic
+    # behaviour bit-for-bit. A non-zero value offsets the TRAINING seed
+    # block (`seeds_for/3`) and salts the GA-QD RNG, so independent
+    # replicates explore different training draws while the FIXED
+    # validation block (`validation_seeds/0`) stays comparable across
+    # runs — the basis for estimating run-to-run variance.
+    run_seed = Keyword.get(opts, :run_seed, 0) || 0
+
     # Pluggable oracle invocation. Defaults to `Synthex.Scoring.LocalPython`,
     # which forks a Python interpreter via `System.cmd`. To distribute,
     # plug in `Synthex.Hub.Scorer` from the synthex-hub client lib.
@@ -294,6 +302,7 @@ defmodule Synthex.Gym.Mujoco do
       max_candidates: max_candidates,
       verifier: verifier,
       verifier_opts: verifier_opts,
+      run_seed: run_seed,
       scorer: scorer
     }
   end
@@ -422,9 +431,17 @@ defmodule Synthex.Gym.Mujoco do
   encodes the canonical offset scheme so a resumed iteration uses
   the SAME seeds it would have on the original attempt.
   """
+  # Per-replicate training-seed stride. A run_seed of `r` shifts the
+  # whole training block by `r * @run_seed_stride`, keeping replicates
+  # disjoint from each other and below the validation band (10_000) for
+  # run_seed ≤ 9 with normal budgets (cegar_rounds·max_iters·n_episodes
+  # ≪ 1000). run_seed 0 (default) is a no-op → historical behaviour.
+  @run_seed_stride 1_000
+
   @spec seeds_for(pos_integer(), pos_integer(), map()) :: [non_neg_integer()]
   def seeds_for(cegar_iter, iter, ctx) do
-    seed_offset = ((cegar_iter - 1) * ctx.max_iters + (iter - 1)) * ctx.n_episodes
+    run_offset = Map.get(ctx, :run_seed, 0) * @run_seed_stride
+    seed_offset = run_offset + ((cegar_iter - 1) * ctx.max_iters + (iter - 1)) * ctx.n_episodes
     Enum.to_list(seed_offset..(seed_offset + ctx.n_episodes - 1))
   end
 

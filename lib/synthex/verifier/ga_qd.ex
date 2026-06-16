@@ -72,7 +72,10 @@ defmodule Synthex.Verifier.GAQD do
     # stays correct on the dashboard.
     k_elite = trunc(Float.round(n_total * elite_frac))
 
-    rng = :rand.seed_s(:exsss, {round, pool, generations})
+    # Salt with run_seed so independent replicates explore different
+    # adversarial seed samples (0 = historical deterministic stream).
+    run_seed = Map.get(ctx, :run_seed, 0)
+    rng = :rand.seed_s(:exsss, {round, pool, generations, run_seed})
 
     try do
       {archive, _rng} =
