@@ -73,9 +73,11 @@ defmodule Synthex.Verifier.GAQD do
     k_elite = trunc(Float.round(n_total * elite_frac))
 
     # Salt with run_seed so independent replicates explore different
-    # adversarial seed samples (0 = historical deterministic stream).
+    # adversarial seed samples. :rand.seed_s/2 takes a 3-int tuple, so
+    # fold run_seed into the third element; run_seed 0 (default) leaves
+    # {round, pool, generations} unchanged → historical stream.
     run_seed = Map.get(ctx, :run_seed, 0)
-    rng = :rand.seed_s(:exsss, {round, pool, generations, run_seed})
+    rng = :rand.seed_s(:exsss, {round, pool, generations + run_seed})
 
     try do
       {archive, _rng} =
