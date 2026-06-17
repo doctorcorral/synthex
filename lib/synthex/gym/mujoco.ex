@@ -55,6 +55,29 @@ defmodule Synthex.Gym.Mujoco do
       dim_names: %{0 => "cos_t", 1 => "sin_t", 2 => "omega"},
       action_dim_names: %{0 => "torque"}
     },
+    # Box2D LunarLander, continuous-action variant (2-D thrust vector).
+    # Chosen as the first non-mujoco test of the GA-QD blind-spot
+    # hypothesis: a competent lander's catastrophic failures (crashes
+    # from rare high-velocity / steep-angle approaches) are RARE and
+    # off the typical hover-and-land trajectory, so the on-policy
+    # `collect_states` distribution under-samples exactly the
+    # high-regret states GA-QD mines. Needs the worker's box2d extra.
+    lunarlander_continuous: %{
+      gym_name: "LunarLander-v3",
+      env_kwargs: %{"continuous" => true},
+      n_action_dims: 2,
+      num_dims: 8,
+      max_steps: 1000,
+      action_range: {-1.0, 1.0},
+      success_threshold: 200.0,
+      dim_names: %{
+        0 => "x", 1 => "y",
+        2 => "vx", 3 => "vy",
+        4 => "angle", 5 => "ang_vel",
+        6 => "leg1", 7 => "leg2"
+      },
+      action_dim_names: %{0 => "main_engine", 1 => "lateral_engine"}
+    },
     inverted_double_pendulum: %{
       gym_name: "InvertedDoublePendulum-v5",
       n_action_dims: 1,
@@ -334,6 +357,16 @@ defmodule Synthex.Gym.Mujoco do
       case Map.get(cfg, :success_threshold) do
         nil -> base
         thr -> Map.put(base, "success_threshold", thr)
+      end
+
+    # Extra gym.make kwargs (e.g. `continuous: true` for LunarLander,
+    # `hardcore: true` for BipedalWalker). Added ONLY when the env_key
+    # declares a non-empty map, so every existing spec is byte-identical
+    # and no current lineage's physics shift.
+    base =
+      case Map.get(cfg, :env_kwargs) do
+        kw when is_map(kw) and map_size(kw) > 0 -> Map.put(base, "env_kwargs", kw)
+        _ -> base
       end
 
     # Warp envs carry a declarative physics descriptor (base gym model +
