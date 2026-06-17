@@ -291,6 +291,17 @@ defmodule Synthex.Gym.Mujoco do
     verifier = normalize_verifier(Keyword.get(opts, :verifier, :random))
     verifier_opts = Keyword.get(opts, :verifier_opts, %{}) || %{}
 
+    # Pluggable per-bit candidate PROPOSER. `:enumerate` (default)
+    # reproduces the historical behaviour exactly: enumerate the feature
+    # pool, sub-sample to `max_candidates`, score in one batch, then
+    # iterative-deepen. `:ga` swaps in a genetic search over the
+    # composition space (`Synthex.Gym.GaProposer`) — fitness-guided
+    # AND/OR/NOT composition of pool atoms, for the non-enumerable
+    # high-dim regime where uniform top_k deepening can't cover the
+    # space. Orthogonal to `verifier` (which supplies states/seeds).
+    proposer = normalize_proposer(Keyword.get(opts, :proposer, :enumerate))
+    proposer_opts = Keyword.get(opts, :proposer_opts, %{}) || %{}
+
     # Replicate seed. 0 (default) reproduces the historical deterministic
     # behaviour bit-for-bit. A non-zero value offsets the TRAINING seed
     # block (`seeds_for/3`) and salts the GA-QD RNG, so independent
@@ -325,6 +336,8 @@ defmodule Synthex.Gym.Mujoco do
       max_candidates: max_candidates,
       verifier: verifier,
       verifier_opts: verifier_opts,
+      proposer: proposer,
+      proposer_opts: proposer_opts,
       run_seed: run_seed,
       scorer: scorer
     }
@@ -334,6 +347,11 @@ defmodule Synthex.Gym.Mujoco do
   defp normalize_verifier("random"), do: :random
   defp normalize_verifier("ga_qd"), do: :ga_qd
   defp normalize_verifier(_), do: :random
+
+  defp normalize_proposer(v) when v in [:enumerate, :ga], do: v
+  defp normalize_proposer("enumerate"), do: :enumerate
+  defp normalize_proposer("ga"), do: :ga
+  defp normalize_proposer(_), do: :enumerate
 
   # Self-describing environment spec shipped to the worker in every
   # request. This is what lets a brand-new environment run on existing
@@ -734,6 +752,13 @@ defmodule Synthex.Gym.Mujoco do
   # ── Internals ─────────────────────────────────────────────────
 
   defp do_optimize_bit(preds, bit_idx, features, ctx, seeds) do
+    case Map.get(ctx, :proposer, :enumerate) do
+      :ga -> Synthex.Gym.GaProposer.optimize_bit(preds, bit_idx, features, ctx, seeds)
+      _ -> enumerate_optimize_bit(preds, bit_idx, features, ctx, seeds)
+    end
+  end
+
+  defp enumerate_optimize_bit(preds, bit_idx, features, ctx, seeds) do
     atoms = CEGIS.enumerate(features, 0)
     all_d0 = cap_pool([:truep, :falsep | atoms], Map.get(ctx, :max_candidates, 8000))
 
@@ -819,6 +844,21 @@ defmodule Synthex.Gym.Mujoco do
        (for p <- blocks, q <- blocks, p != q, do: {:or, p, q}) ++
        (for p <- negations, q <- blocks, do: {:and, p, q}))
     |> Enum.uniq()
+  end
+
+  @doc """
+  Public scoring entry point for pluggable candidate proposers (e.g.
+  `Synthex.Gym.GaProposer`). Scores `candidates` for `target_bit`
+  against `preds` on `seeds`, returning `{scored, baseline}` where
+  `scored` is a list of `{idx, reward, landings}` for the candidates
+  that scored to a number (NaN/unscorable entries are dropped) and
+  `baseline` is the current predicate vector's reward on the same
+  seeds. `idx` indexes into `candidates`.
+  """
+  @spec score_candidates([Synthex.Core.PredProg.predicate()], [Synthex.Core.PredProg.predicate()], non_neg_integer(), [non_neg_integer()], map()) ::
+          {[{non_neg_integer(), number(), number()}], float()}
+  def score_candidates(candidates, preds, target_bit, seeds, ctx) do
+    score_bit_candidates(candidates, preds, target_bit, seeds, ctx)
   end
 
   defp score_bit_candidates(candidates, preds, target_bit, seeds, ctx) do
