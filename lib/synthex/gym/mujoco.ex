@@ -423,7 +423,8 @@ defmodule Synthex.Gym.Mujoco do
       max_coeff: ctx.max_coeff,
       tridiag_max_coeff: ctx.tridiag_max_coeff,
       tridiag_dims: ctx.tridiag_dims,
-      feature_types: ctx.feature_types
+      feature_types: ctx.feature_types,
+      max_candidates: Map.get(ctx, :max_candidates)
     )
   end
 

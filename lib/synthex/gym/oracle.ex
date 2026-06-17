@@ -342,22 +342,240 @@ defmodule Synthex.Gym.Oracle do
 
     types = Keyword.get(opts, :feature_types, @all_feature_types)
 
-    Enum.flat_map(types, fn
-      :axis -> generate_axis_features(states, n_dims)
-      :diag -> generate_diag_features(n_dims, max_coeff)
-      :sq_diag -> generate_sq_diag_features(n_dims, max_coeff)
-      :prod -> generate_product_features(states, n_dims)
-      :tridiag -> generate_tridiag_features(n_dims, tridiag_max_coeff, tridiag_dims)
-      :sin_axis -> generate_sin_axis_features(n_dims)
-      :cos_axis -> generate_cos_axis_features(n_dims)
-      :wavelet_box -> generate_wavelet_box_features(states, n_dims)
-      :wavelet_ricker -> generate_wavelet_ricker_features(states, n_dims)
-      other -> raise ArgumentError, "unknown feature type: #{inspect(other)} (known: #{inspect(@all_feature_types)})"
-    end)
+    # Per-step candidate-pool bound. When the combinatorial feature pool
+    # would exceed this, SAMPLE down to it WITHOUT materializing the full
+    # pool: the combinatorial classes (`:diag`, `:sq_diag`, `:tridiag`)
+    # are index-decoded, so e.g. Humanoid's ~18.5M tridiag features
+    # (105^3·(2c)^2) are never built — only the sampled handful are
+    # decoded. `nil`/`<=0` keeps the legacy behaviour (materialize
+    # everything; the downstream `cap_pool/2` still bounds the per-bit
+    # batch). Sampling only kicks in for the high-dim regime that
+    # previously wedged the controller, so no existing run changes.
+    max_candidates = Keyword.get(opts, :max_candidates)
+
+    # Each enabled type becomes either an EAGER list (data-driven or
+    # inherently small classes, built in full) or a LAZY combinatorial
+    # segment `{size, full_fun, decode_fun}` that can be sampled by index.
+    sized =
+      Enum.map(types, fn
+        :axis -> {:eager, generate_axis_features(states, n_dims)}
+        :prod -> {:eager, generate_product_features(states, n_dims)}
+        :sin_axis -> {:eager, generate_sin_axis_features(n_dims)}
+        :cos_axis -> {:eager, generate_cos_axis_features(n_dims)}
+        :wavelet_box -> {:eager, generate_wavelet_box_features(states, n_dims)}
+        :wavelet_ricker -> {:eager, generate_wavelet_ricker_features(states, n_dims)}
+        :diag -> {:lazy, diag_segment(n_dims, max_coeff)}
+        :sq_diag -> {:lazy, sq_diag_segment(n_dims, max_coeff)}
+        :tridiag -> {:lazy, tridiag_segment(n_dims, tridiag_max_coeff, tridiag_dims)}
+        other -> raise ArgumentError, "unknown feature type: #{inspect(other)} (known: #{inspect(@all_feature_types)})"
+      end)
+      |> Enum.map(fn
+        {:eager, list} -> {:eager, length(list), list}
+        {:lazy, {size, full_fun, decode_fun}} -> {:lazy, size, full_fun, decode_fun}
+      end)
+
+    total = Enum.reduce(sized, 0, fn t, acc -> acc + elem(t, 1) end)
+
+    if is_nil(max_candidates) or max_candidates <= 0 or total <= max_candidates do
+      # Legacy path: materialize everything in declaration order.
+      Enum.flat_map(sized, fn
+        {:eager, _n, list} -> list
+        {:lazy, _n, full_fun, _dec} -> full_fun.()
+      end)
+    else
+      sample_feature_pool(sized, total, max_candidates)
+    end
   end
 
   @doc "All feature classes that `generate_features/2` knows about."
   def all_feature_types, do: @all_feature_types
+
+  # ── Sampled combinatorial feature generation ──────────────────────
+  #
+  # The `:diag`/`:sq_diag`/`:tridiag` classes are pure functions of
+  # `(dims, coeffs)` with closed-form sizes, so we can sample candidates
+  # by drawing distinct integer indices and DECODING each back into its
+  # `[tag, i, j, ...]` term — never building the full Cartesian product.
+  # This is what lets the high-dim envs (Humanoid: 105 dims) run at all.
+
+  defp diag_coeffs(max_coeff), do: for(c <- 1..max_coeff, v <- [c, -c], do: v)
+
+  defp sq_diag_coeffs(max_coeff) do
+    for c <- [0.01, 0.05, 0.1, 0.2, 0.5] ++ Enum.to_list(1..max_coeff), v <- [c, -c], do: v
+  end
+
+  # {size, full_fun, decode_fun} for the `:diag` class.
+  defp diag_segment(n_dims, max_coeff) do
+    coeffs = List.to_tuple(diag_coeffs(max_coeff))
+    nc = tuple_size(coeffs)
+    size = max(n_dims * (n_dims - 1) * nc, 0)
+    full = fn -> generate_diag_features(n_dims, max_coeff) end
+
+    decode = fn local ->
+      c_idx = rem(local, nc)
+      {i, j} = decode_skip_pair(div(local, nc), n_dims)
+      ["diag", i, j, elem(coeffs, c_idx)]
+    end
+
+    {size, full, decode}
+  end
+
+  defp sq_diag_segment(n_dims, max_coeff) do
+    coeffs = List.to_tuple(sq_diag_coeffs(max_coeff))
+    nc = tuple_size(coeffs)
+    size = max(n_dims * (n_dims - 1) * nc, 0)
+    full = fn -> generate_sq_diag_features(n_dims, max_coeff) end
+
+    decode = fn local ->
+      c_idx = rem(local, nc)
+      {i, j} = decode_skip_pair(div(local, nc), n_dims)
+      ["sq_diag", i, j, elem(coeffs, c_idx)]
+    end
+
+    {size, full, decode}
+  end
+
+  defp tridiag_segment(n_dims, max_coeff, dim_subset) do
+    dims =
+      case dim_subset do
+        nil -> Enum.to_list(0..(n_dims - 1))
+        list when is_list(list) -> list
+        %Range{} = r -> Enum.to_list(r)
+      end
+
+    d = length(dims)
+
+    if d < 3 do
+      {0, fn -> [] end, fn _ -> nil end}
+    else
+      dims_t = List.to_tuple(dims)
+      coeffs = List.to_tuple(diag_coeffs(max_coeff))
+      nc = tuple_size(coeffs)
+      size = d * (d - 1) * (d - 2) * nc * nc
+      full = fn -> generate_tridiag_features(n_dims, max_coeff, dim_subset) end
+
+      decode = fn local ->
+        c2 = rem(local, nc)
+        l1 = div(local, nc)
+        c1 = rem(l1, nc)
+        {pi, pj, pk} = decode_distinct_triple(div(l1, nc), d)
+
+        [
+          "tridiag",
+          elem(dims_t, pi),
+          elem(dims_t, pj),
+          elem(dims_t, pk),
+          elem(coeffs, c1),
+          elem(coeffs, c2)
+        ]
+      end
+
+      {size, full, decode}
+    end
+  end
+
+  # `p`-th ordered (i, j) pair with i != j over 0..n-1, matching the
+  # iteration order of `for i <- 0..n-1, j <- 0..n-1, i != j`.
+  defp decode_skip_pair(p, n) do
+    i = div(p, n - 1)
+    r = rem(p, n - 1)
+    j = if r < i, do: r, else: r + 1
+    {i, j}
+  end
+
+  # `l`-th ordered all-distinct (i, j, k) triple over 0..d-1, matching
+  # `for i <- d, j <- d, k <- d, i != j and j != k and i != k`.
+  defp decode_distinct_triple(l, d) do
+    per_i = (d - 1) * (d - 2)
+    pi = div(l, per_i)
+    rem1 = rem(l, per_i)
+    pj = skip_one(div(rem1, d - 2), pi)
+    pk = skip_two(rem(rem1, d - 2), pi, pj)
+    {pi, pj, pk}
+  end
+
+  defp skip_one(r, a), do: if(r < a, do: r, else: r + 1)
+
+  defp skip_two(r, a, b) do
+    lo = min(a, b)
+    hi = max(a, b)
+    x = if r >= lo, do: r + 1, else: r
+    if x >= hi, do: x + 1, else: x
+  end
+
+  # Draw `budget` candidates from the combined pool. Quotas are
+  # water-filled across enabled types so every class is represented — a
+  # uniform draw over the combined index space would be ~entirely tridiag
+  # for high-dim envs and starve the data-driven axis thresholds that
+  # carry most of the signal.
+  defp sample_feature_pool(sized, total, budget) do
+    sizes = Enum.map(sized, &elem(&1, 1))
+    quotas = allocate_quotas(sizes, budget)
+    seed0 = :erlang.phash2({sizes, budget, total})
+
+    sized
+    |> Enum.zip(quotas)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {{part, quota}, ti} ->
+      sample_part(part, quota, :rand.seed_s(:exsss, {seed0, ti + 1, quota + 1}))
+    end)
+  end
+
+  defp sample_part(_part, 0, _rng), do: []
+
+  defp sample_part({:eager, n, list}, quota, rng) do
+    if quota >= n do
+      list
+    else
+      tup = List.to_tuple(list)
+      sample_distinct_indices(quota, n, rng) |> Enum.map(&elem(tup, &1))
+    end
+  end
+
+  defp sample_part({:lazy, n, full_fun, decode_fun}, quota, rng) do
+    cond do
+      n <= 0 -> []
+      quota >= n -> full_fun.()
+      true -> sample_distinct_indices(quota, n, rng) |> Enum.map(decode_fun)
+    end
+  end
+
+  # `k` distinct integers in [0, n) by rejection. Sampling only triggers
+  # when k << n (the explosive regime), so the expected draw count is ~k.
+  defp sample_distinct_indices(k, n, rng) do
+    sample_distinct_loop(MapSet.new(), k, n, rng) |> MapSet.to_list()
+  end
+
+  defp sample_distinct_loop(set, k, n, rng) do
+    if MapSet.size(set) >= k do
+      set
+    else
+      {f, rng2} = :rand.uniform_s(rng)
+      idx = min(trunc(f * n), n - 1)
+      sample_distinct_loop(MapSet.put(set, idx), k, n, rng2)
+    end
+  end
+
+  # Water-fill `budget` across per-type `sizes`: an equal base share,
+  # then redistribute the slack left by classes smaller than the base to
+  # the classes that still have capacity (proportional to that capacity).
+  defp allocate_quotas([], _budget), do: []
+
+  defp allocate_quotas(sizes, budget) do
+    n = length(sizes)
+    base = max(div(budget, n), 1)
+    first = Enum.map(sizes, fn s -> min(s, base) end)
+    leftover = budget - Enum.sum(first)
+    caps = Enum.zip(sizes, first) |> Enum.map(fn {s, q} -> s - q end)
+    total_cap = Enum.sum(caps)
+
+    if leftover <= 0 or total_cap <= 0 do
+      first
+    else
+      Enum.zip(first, caps)
+      |> Enum.map(fn {q, cap} -> q + min(cap, div(leftover * cap, total_cap)) end)
+    end
+  end
 
 
   defp generate_sin_axis_features(n_dims) do
