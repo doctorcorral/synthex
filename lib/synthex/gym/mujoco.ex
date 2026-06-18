@@ -148,6 +148,33 @@ defmodule Synthex.Gym.Mujoco do
         3 => "thigh_l", 4 => "leg_l", 5 => "foot_l"
       }
     },
+    # Box2D BipedalWalker — a bipedal locomotion benchmark (solved at
+    # return 300). NOT a MuJoCo env: gym.make builds it from gymnasium's
+    # box2d (same extra the worker already carries for LunarLander), and
+    # the generic bit-quantized continuous-action path drives it. Chosen
+    # as a winnable locomotion target after Humanoid plateaued at its
+    # "stand-then-fall" reward floor: BipedalWalker has no balance-from-
+    # scratch trap and a memoryless threshold policy can produce a gait.
+    bipedal_walker: %{
+      gym_name: "BipedalWalker-v3",
+      n_action_dims: 4,
+      num_dims: 24,
+      max_steps: 1600,
+      action_range: {-1.0, 1.0},
+      success_threshold: 300.0,
+      dim_names: %{
+        0 => "hull_angle", 1 => "hull_ang_vel",
+        2 => "vel_x", 3 => "vel_y",
+        4 => "hip1_angle", 5 => "hip1_speed",
+        6 => "knee1_angle", 7 => "knee1_speed", 8 => "leg1_contact",
+        9 => "hip2_angle", 10 => "hip2_speed",
+        11 => "knee2_angle", 12 => "knee2_speed", 13 => "leg2_contact",
+        14 => "lidar0", 15 => "lidar1", 16 => "lidar2", 17 => "lidar3",
+        18 => "lidar4", 19 => "lidar5", 20 => "lidar6", 21 => "lidar7",
+        22 => "lidar8", 23 => "lidar9"
+      },
+      action_dim_names: %{0 => "hip1", 1 => "knee1", 2 => "hip2", 3 => "knee2"}
+    },
     ant: %{
       gym_name: "Ant-v5",
       n_action_dims: 8,

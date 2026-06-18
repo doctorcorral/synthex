@@ -1,0 +1,91 @@
+Compiling 1 file (.ex)
+     warning: variable "locked_preds" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 225 │     locked_preds = List.duplicate(nil, n_swaps)
+     │     ~~~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/swap_network.ex:225:5: Synthex.Gym.SwapNetwork.run_progressive_pass/11
+
+    warning: unused alias Oracle
+    │
+ 14 │   alias Synthex.Pure.Permutation.Oracle
+    │   ~
+    │
+    └─ lib/synthex/pure/permutation/state_cegar.ex:14:3
+
+    warning: unused alias Oracle
+    │
+ 16 │   alias Synthex.Pure.Permutation.Oracle
+    │   ~
+    │
+    └─ lib/synthex/pure/permutation/structural_tree_engine.ex:16:3
+
+    warning: clauses with the same name and arity (number of arguments) should be grouped together, "defp simulate_action_penalty/5" was previously defined (lib/synthex/pure/permutation/oracle_engine.ex:34)
+    │
+ 58 │   defp simulate_action_penalty(state, action, env_mod, _horizon, policy) do
+    │        ~
+    │
+    └─ lib/synthex/pure/permutation/oracle_engine.ex:58:8
+
+     warning: variable "best_preds" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 107 │     {best_preds, best_val, best_survived} = _best =
+     │      ~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/binary.ex:107:6: Synthex.Gym.Binary.solve/1
+
+     warning: variable "best_survived" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 107 │     {best_preds, best_val, best_survived} = _best =
+     │                            ~~~~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/binary.ex:107:28: Synthex.Gym.Binary.solve/1
+
+     warning: variable "best_val" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 107 │     {best_preds, best_val, best_survived} = _best =
+     │                  ~~~~~~~~
+     │
+     └─ lib/synthex/gym/binary.ex:107:18: Synthex.Gym.Binary.solve/1
+
+     warning: variable "succ_baseline" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 262 │     {succ_scored, succ_baseline, _} =
+     │                   ~~~~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/successor.ex:262:19: Synthex.Gym.Successor.optimize_position_hybrid/12
+
+     warning: function check_new_overlaps/4 is unused
+     │
+ 676 │   defp check_new_overlaps(new_pred, new_ranking, partition, states) do
+     │        ~
+     │
+     └─ lib/synthex/gym/ranking.ex:676:8: Synthex.Gym.Ranking (module)
+
+    warning: Synthex.Gym.Ranking.solve/3 is undefined or private. Did you mean:
+
+          * solve/1
+          * solve/2
+
+    │
+ 52 │     Synthex.Gym.Ranking.solve(actions, default, opts)
+    │                         ~
+    │
+    └─ lib/synthex/experiment.ex:52:25: Synthex.Experiment.dispatch/2
+
+Generated synthex app
+  CSHRL Binary-Weighted Synthesis -- MuJoCo
+  Env: HalfCheetah-v5
+  3 bits/dim x 6 dims = 18 predicates
+  Action range: [-1.0, 1.0]
+  Depth: 1, Episodes: 50, TopK: 24
+
+
+  CEGAR Round 1/8
+  40000 states collected
+  419997 features
+
+
+  Iteration 1/8
+
+  >> Bit 13: fshin weight=2

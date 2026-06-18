@@ -1,0 +1,1613 @@
+     warning: variable "locked_preds" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 225 │     locked_preds = List.duplicate(nil, n_swaps)
+     │     ~~~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/swap_network.ex:225:5: Synthex.Gym.SwapNetwork.run_progressive_pass/11
+
+    warning: unused alias Oracle
+    │
+ 14 │   alias Synthex.Pure.Permutation.Oracle
+    │   ~
+    │
+    └─ lib/synthex/pure/permutation/state_cegar.ex:14:3
+
+    warning: unused alias Oracle
+    │
+ 16 │   alias Synthex.Pure.Permutation.Oracle
+    │   ~
+    │
+    └─ lib/synthex/pure/permutation/structural_tree_engine.ex:16:3
+
+    warning: clauses with the same name and arity (number of arguments) should be grouped together, "defp simulate_action_penalty/5" was previously defined (lib/synthex/pure/permutation/oracle_engine.ex:34)
+    │
+ 58 │   defp simulate_action_penalty(state, action, env_mod, _horizon, policy) do
+    │        ~
+    │
+    └─ lib/synthex/pure/permutation/oracle_engine.ex:58:8
+
+     warning: variable "best_preds" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 107 │     {best_preds, best_val, best_survived} = _best =
+     │      ~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/binary.ex:107:6: Synthex.Gym.Binary.solve/1
+
+     warning: variable "best_survived" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 107 │     {best_preds, best_val, best_survived} = _best =
+     │                            ~~~~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/binary.ex:107:28: Synthex.Gym.Binary.solve/1
+
+     warning: variable "best_val" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 107 │     {best_preds, best_val, best_survived} = _best =
+     │                  ~~~~~~~~
+     │
+     └─ lib/synthex/gym/binary.ex:107:18: Synthex.Gym.Binary.solve/1
+
+     warning: variable "succ_baseline" is unused (if the variable is not meant to be used, prefix it with an underscore)
+     │
+ 262 │     {succ_scored, succ_baseline, _} =
+     │                   ~~~~~~~~~~~~~
+     │
+     └─ lib/synthex/gym/successor.ex:262:19: Synthex.Gym.Successor.optimize_position_hybrid/12
+
+     warning: function check_new_overlaps/4 is unused
+     │
+ 676 │   defp check_new_overlaps(new_pred, new_ranking, partition, states) do
+     │        ~
+     │
+     └─ lib/synthex/gym/ranking.ex:676:8: Synthex.Gym.Ranking (module)
+
+    warning: Synthex.Gym.Ranking.solve/3 is undefined or private. Did you mean:
+
+          * solve/1
+          * solve/2
+
+    │
+ 52 │     Synthex.Gym.Ranking.solve(actions, default, opts)
+    │                         ~
+    │
+    └─ lib/synthex/experiment.ex:52:25: Synthex.Experiment.dispatch/2
+
+  CSHRL Binary-Weighted Synthesis -- MuJoCo
+  Env: HalfCheetah-v5
+  3 bits/dim x 6 dims = 18 predicates
+  Action range: [-1.0, 1.0]
+  Depth: 1, Episodes: 50, TopK: 24
+
+
+  CEGAR Round 1/8
+  40000 states collected
+  3301 features
+
+
+  Iteration 1/8
+
+  >> Bit 12: fshin weight=1
+    reward=-27681.4
+
+  >> Bit 7: bfoot weight=2
+    reward=-23609.8
+
+  >> Bit 0: bthigh weight=1
+    reward=-21096.7
+
+  >> Bit 13: fshin weight=2
+    reward=-18685.0
+
+  >> Bit 9: fthigh weight=1
+    reward=-15902.2
+
+  >> Bit 17: ffoot weight=4
+    reward=-11362.5
+
+  >> Bit 14: fshin weight=4
+    reward=-11362.2
+
+  >> Bit 15: ffoot weight=1
+    reward=-11361.4
+
+  >> Bit 4: bshin weight=2
+    reward=-7023.2
+
+  >> Bit 6: bfoot weight=1
+    reward=-2615.0
+
+  >> Bit 10: fthigh weight=2
+    reward=6678.8
+
+  >> Bit 2: bthigh weight=4
+    reward=57825.4
+
+  >> Bit 11: fthigh weight=4
+    reward=66103.0
+
+  >> Bit 3: bshin weight=1
+    reward=72692.5
+
+  >> Bit 16: ffoot weight=2
+    reward=76199.9
+
+  >> Bit 5: bshin weight=4
+    reward=76756.7
+
+  >> Bit 1: bthigh weight=2
+    reward=81016.7
+
+  >> Bit 8: bfoot weight=4
+    reward=81834.1
+  Validation: avg=1531.0/ep survived=187/200
+
+  Iteration 2/8
+
+  >> Bit 10: fthigh weight=2
+    reward=82458.8
+
+  >> Bit 17: ffoot weight=4
+    reward=86435.4
+
+  >> Bit 4: bshin weight=2
+    reward=91732.0
+
+  >> Bit 3: bshin weight=1
+    reward=91788.6
+
+  >> Bit 12: fshin weight=1
+    reward=94782.1
+
+  >> Bit 0: bthigh weight=1
+    reward=99157.7
+
+  >> Bit 16: ffoot weight=2
+    reward=103495.9
+
+  >> Bit 9: fthigh weight=1
+    reward=110685.8
+
+  >> Bit 8: bfoot weight=4
+    reward=111595.7
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    reward=112873.3
+
+  >> Bit 6: bfoot weight=1
+    reward=118600.7
+
+  >> Bit 14: fshin weight=4
+    reward=119032.8
+
+  >> Bit 13: fshin weight=2
+    reward=121110.3
+
+  >> Bit 5: bshin weight=4
+    reward=121520.1
+
+  >> Bit 11: fthigh weight=4
+    reward=132862.3
+
+  >> Bit 2: bthigh weight=4
+    reward=135088.9
+  Validation: avg=2696.7/ep survived=200/200
+
+  Iteration 3/8
+
+  >> Bit 10: fthigh weight=2
+    reward=137792.3
+
+  >> Bit 7: bfoot weight=2
+    reward=145302.8
+
+  >> Bit 14: fshin weight=4
+    reward=150201.7
+
+  >> Bit 17: ffoot weight=4
+    reward=153940.1
+
+  >> Bit 0: bthigh weight=1
+    reward=154284.9
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    reward=155722.9
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    reward=156986.2
+
+  >> Bit 12: fshin weight=1
+    reward=157232.4
+
+  >> Bit 8: bfoot weight=4
+    reward=158144.2
+
+  >> Bit 11: fthigh weight=4
+    reward=158513.1
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    reward=159216.8
+
+  >> Bit 6: bfoot weight=1
+    reward=159703.2
+
+  >> Bit 5: bshin weight=4
+    reward=159976.9
+
+  >> Bit 13: fshin weight=2
+    reward=163480.9
+
+  >> Bit 4: bshin weight=2
+    reward=175241.8
+  Validation: avg=3423.1/ep survived=197/200
+
+  Iteration 4/8
+
+  >> Bit 15: ffoot weight=1
+    reward=177712.4
+
+  >> Bit 17: ffoot weight=4
+    reward=179780.8
+
+  >> Bit 16: ffoot weight=2
+    reward=180534.6
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    reward=180767.1
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+  Validation: avg=3339.2/ep survived=193/200
+
+  Iteration 5/8
+
+  >> Bit 16: ffoot weight=2
+    reward=178740.9
+
+  >> Bit 3: bshin weight=1
+    reward=180112.0
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    reward=180980.5
+
+  >> Bit 0: bthigh weight=1
+    reward=181152.0
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    No improvement
+  Validation: avg=3375.7/ep survived=196/200
+
+  Iteration 6/8
+
+  >> Bit 16: ffoot weight=2
+    reward=178914.3
+
+  >> Bit 7: bfoot weight=2
+    reward=178971.9
+
+  >> Bit 4: bshin weight=2
+    reward=179297.3
+
+  >> Bit 12: fshin weight=1
+    reward=181546.8
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    reward=181589.7
+
+  >> Bit 11: fthigh weight=4
+    reward=181822.7
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=182422.6
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    reward=183156.7
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=184089.0
+  Validation: avg=3599.9/ep survived=200/200
+
+  Iteration 7/8
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    reward=181411.4
+
+  >> Bit 13: fshin weight=2
+    reward=182331.8
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    reward=182780.8
+
+  >> Bit 5: bshin weight=4
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    reward=182913.8
+
+  >> Bit 3: bshin weight=1
+    reward=184089.6
+
+  >> Bit 8: bfoot weight=4
+    reward=184339.7
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    reward=185065.7
+
+  >> Bit 12: fshin weight=1
+    reward=185295.9
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=185736.6
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+  Validation: avg=3638.5/ep survived=199/200
+
+  Iteration 8/8
+
+  >> Bit 6: bfoot weight=1
+    reward=183973.1
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    reward=184011.3
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    reward=184236.3
+
+  >> Bit 11: fthigh weight=4
+    reward=184512.9
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+  Validation: avg=3619.7/ep survived=199/200
+
+  CEGAR Round 2/8
+  40000 states collected
+  4114 features
+
+
+  Iteration 1/8
+
+  >> Bit 12: fshin weight=1
+    reward=183913.8
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    reward=184169.4
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    reward=185095.0
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=185242.4
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+  Validation: avg=3639.9/ep survived=199/200
+
+  Iteration 2/8
+
+  >> Bit 14: fshin weight=4
+    reward=184745.7
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    reward=185385.7
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    reward=185905.3
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+  Validation: avg=3641.4/ep survived=199/200
+
+  Iteration 3/8
+
+  >> Bit 5: bshin weight=4
+    reward=183911.4
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    reward=184776.3
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    reward=185139.4
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=185573.7
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=185691.4
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+  Validation: avg=3618.9/ep survived=198/200
+
+  Iteration 4/8
+
+  >> Bit 9: fthigh weight=1
+    reward=183998.2
+
+  >> Bit 12: fshin weight=1
+    reward=184622.1
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=184774.4
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=184818.5
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    reward=184914.5
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    reward=185197.1
+  Validation: avg=3622.3/ep survived=199/200
+
+  Iteration 5/8
+
+  >> Bit 15: ffoot weight=1
+    reward=184018.3
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=184066.2
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    reward=184717.8
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=185072.5
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=185102.0
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+  Validation: avg=3589.3/ep survived=199/200
+
+  Iteration 6/8
+
+  >> Bit 16: ffoot weight=2
+    reward=184073.6
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    reward=184302.8
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    reward=185203.2
+
+  >> Bit 10: fthigh weight=2
+    reward=185265.9
+
+  >> Bit 5: bshin weight=4
+    reward=185412.1
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    reward=185482.0
+
+  >> Bit 15: ffoot weight=1
+    reward=186702.8
+
+  >> Bit 14: fshin weight=4
+    reward=186739.6
+
+  >> Bit 12: fshin weight=1
+    reward=187124.4
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=187208.9
+
+  >> Bit 17: ffoot weight=4
+    reward=187333.5
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+  Validation: avg=3699.2/ep survived=200/200
+
+  Iteration 7/8
+
+  >> Bit 2: bthigh weight=4
+    reward=186729.2
+
+  >> Bit 5: bshin weight=4
+    reward=187128.1
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=187609.0
+
+  >> Bit 11: fthigh weight=4
+    reward=187753.1
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    reward=187839.9
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    reward=187931.0
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+  Validation: avg=3684.7/ep survived=199/200
+
+  Iteration 8/8
+
+  >> Bit 14: fshin weight=4
+    reward=186533.0
+
+  >> Bit 0: bthigh weight=1
+    reward=187203.3
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=187590.0
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=187729.9
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+  Validation: avg=3695.7/ep survived=200/200
+
+  CEGAR Round 3/8
+  40000 states collected
+  4114 features
+
+
+  Iteration 1/8
+
+  >> Bit 12: fshin weight=1
+    reward=186377.2
+
+  >> Bit 3: bshin weight=1
+    reward=187134.5
+
+  >> Bit 17: ffoot weight=4
+    reward=187300.1
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=187516.3
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=187715.0
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=187811.7
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+  Validation: avg=3569.4/ep survived=194/200
+
+  Iteration 2/8
+
+  >> Bit 8: bfoot weight=4
+    reward=186741.5
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    reward=186900.1
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    reward=187006.9
+
+  >> Bit 2: bthigh weight=4
+    reward=187418.8
+
+  >> Bit 5: bshin weight=4
+    reward=187640.5
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=188095.5
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    reward=188525.4
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+  Validation: avg=3621.8/ep survived=198/200
+
+  Iteration 3/8
+
+  >> Bit 8: bfoot weight=4
+    reward=186660.9
+
+  >> Bit 12: fshin weight=1
+    reward=187416.2
+
+  >> Bit 2: bthigh weight=4
+    reward=188193.8
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=188438.5
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=188507.6
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+  Validation: avg=3531.3/ep survived=192/200
+
+  Iteration 4/8
+
+  >> Bit 11: fthigh weight=4
+    reward=187048.8
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    reward=187254.7
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=187532.3
+
+  >> Bit 13: fshin weight=2
+    No improvement
+  Validation: avg=3624.2/ep survived=199/200
+
+  Iteration 5/8
+
+  >> Bit 10: fthigh weight=2
+    reward=186355.3
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=186488.2
+  Validation: avg=3433.2/ep survived=191/200
+
+  Iteration 6/8
+
+  >> Bit 9: fthigh weight=1
+    reward=182058.4
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=183929.6
+
+  >> Bit 12: fshin weight=1
+    reward=184152.4
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+  Validation: avg=3386.3/ep survived=188/200
+
+  Iteration 7/8
+
+  >> Bit 5: bshin weight=4
+    reward=181193.2
+
+  >> Bit 8: bfoot weight=4
+    reward=181579.5
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=184507.3
+
+  >> Bit 10: fthigh weight=2
+    reward=185899.4
+
+  >> Bit 2: bthigh weight=4
+    reward=186884.9
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    reward=187045.4
+
+  >> Bit 17: ffoot weight=4
+    reward=187260.0
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    reward=188422.3
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+  Validation: avg=3609.7/ep survived=196/200
+
+  Iteration 8/8
+
+  >> Bit 14: fshin weight=4
+    reward=184167.3
+
+  >> Bit 10: fthigh weight=2
+    reward=187520.0
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    reward=187771.3
+
+  >> Bit 3: bshin weight=1
+    reward=188314.7
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    reward=188444.8
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=188864.1
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=189037.6
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    reward=189148.7
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+  Validation: avg=3701.4/ep survived=199/200
+
+  CEGAR Round 4/8
+  40000 states collected
+  4114 features
+
+
+  Iteration 1/8
+
+  >> Bit 12: fshin weight=1
+    reward=188609.4
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    reward=189077.1
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    reward=189202.5
+
+  >> Bit 11: fthigh weight=4
+    reward=189501.7
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 15: ffoot weight=1
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    No improvement
+
+  >> Bit 14: fshin weight=4
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+  Validation: avg=3579.8/ep survived=195/200
+
+  Iteration 2/8
+
+  >> Bit 15: ffoot weight=1
+    reward=188965.8
+
+  >> Bit 14: fshin weight=4
+    reward=189073.7
+
+  >> Bit 1: bthigh weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=189230.4
+
+  >> Bit 3: bshin weight=1
+    No improvement
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 9: fthigh weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 5: bshin weight=4
+    No improvement
+
+  >> Bit 17: ffoot weight=4
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 13: fshin weight=2
+    No improvement
+
+  >> Bit 7: bfoot weight=2
+    No improvement
+
+  >> Bit 2: bthigh weight=4
+    No improvement
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+  Validation: avg=3556.8/ep survived=193/200
+
+  Iteration 3/8
+
+  >> Bit 2: bthigh weight=4
+    reward=188299.9
+
+  >> Bit 12: fshin weight=1
+    No improvement
+
+  >> Bit 4: bshin weight=2
+    No improvement
+
+  >> Bit 16: ffoot weight=2
+    No improvement
+
+  >> Bit 8: bfoot weight=4
+    reward=188645.1
+
+  >> Bit 0: bthigh weight=1
+    No improvement
+
+  >> Bit 11: fthigh weight=4
+    No improvement
+
+  >> Bit 6: bfoot weight=1
+    No improvement
+
+  >> Bit 10: fthigh weight=2
+
+07:00:57.186 [notice] SIGTERM received - shutting down
+
