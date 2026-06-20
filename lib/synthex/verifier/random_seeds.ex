@@ -15,8 +15,14 @@ defmodule Synthex.Verifier.RandomSeeds do
 
   @impl true
   def supply(preds, ctx, round) do
-    {states, _n_landings} = Mujoco.collect_states(preds, ctx)
+    {states, _n_landings, snapshots} = Mujoco.collect_states(preds, ctx)
     seeds = Mujoco.seeds_for(round, 1, ctx)
-    %{states: states, seeds: seeds, counterexamples: []}
+    base = %{states: states, seeds: seeds, counterexamples: []}
+
+    if snapshots != [] do
+      Map.put(base, :succ_snapshots, snapshots)
+    else
+      base
+    end
   end
 end

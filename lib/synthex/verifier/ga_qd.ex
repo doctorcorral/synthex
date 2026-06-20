@@ -105,7 +105,7 @@ defmodule Synthex.Verifier.GAQD do
 
       # Features come from trajectories of the (blended) scoring seeds so
       # the predicate vocabulary sees the adversarial states too.
-      {states, _} = Mujoco.collect_states(preds, ctx, score_seeds)
+      {states, _, snapshots} = Mujoco.collect_states(preds, ctx, score_seeds)
 
       Logger.info(
         "[Verifier.GAQD] round #{round}: #{map_size(archive)} QD cells, " <>
@@ -113,11 +113,17 @@ defmodule Synthex.Verifier.GAQD do
           "adversarial scoring seeds (elite_frac=#{elite_frac})"
       )
 
-      %{
+      base = %{
         states: states,
         seeds: score_seeds,
         counterexamples: Enum.take(elites, max(k_elite, 1))
       }
+
+      if snapshots != [] do
+        Map.put(base, :succ_snapshots, snapshots)
+      else
+        base
+      end
     rescue
       e ->
         Logger.warning(

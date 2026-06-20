@@ -329,6 +329,18 @@ defmodule Synthex.Gym.Mujoco do
     proposer = normalize_proposer(Keyword.get(opts, :proposer, :enumerate))
     proposer_opts = Keyword.get(opts, :proposer_opts, %{}) || %{}
 
+    # Pluggable per-bit candidate FITNESS (ranking objective). `:episode`
+    # (default) reproduces the historical behaviour: rank by summed episode
+    # return on the training seeds. `:successor` swaps in the
+    # CoinductiveHomomorphism criterion — successor-value dominance via
+    # counterfactual branching + truncated lookahead — then re-scores the
+    # shortlist on episode return for the commit gate. Orthogonal to
+    # `proposer` (which controls candidate *generation*) and to `ctx.scorer`
+    # (the transport that dispatches requests to workers).
+    fitness_scorer = normalize_fitness_scorer(Keyword.get(opts, :fitness_scorer, :episode))
+    successor_lookahead = Keyword.get(opts, :successor_lookahead, 40)
+    succ_top_k = Keyword.get(opts, :succ_top_k, nil)
+
     # Replicate seed. 0 (default) reproduces the historical deterministic
     # behaviour bit-for-bit. A non-zero value offsets the TRAINING seed
     # block (`seeds_for/3`) and salts the GA-QD RNG, so independent
@@ -365,6 +377,9 @@ defmodule Synthex.Gym.Mujoco do
       verifier_opts: verifier_opts,
       proposer: proposer,
       proposer_opts: proposer_opts,
+      fitness_scorer: fitness_scorer,
+      successor_lookahead: successor_lookahead,
+      succ_top_k: succ_top_k,
       run_seed: run_seed,
       scorer: scorer
     }
@@ -380,6 +395,11 @@ defmodule Synthex.Gym.Mujoco do
   defp normalize_proposer("ga"), do: :ga
   defp normalize_proposer(_), do: :enumerate
 
+  defp normalize_fitness_scorer(v) when v in [:episode, :successor], do: v
+  defp normalize_fitness_scorer("episode"), do: :episode
+  defp normalize_fitness_scorer("successor"), do: :successor
+  defp normalize_fitness_scorer(_), do: :episode
+
   # Self-describing environment spec shipped to the worker in every
   # request. This is what lets a brand-new environment run on existing
   # workers with NO rebuild: the hub is the single source of truth and
@@ -387,7 +407,7 @@ defmodule Synthex.Gym.Mujoco do
   # declarative obs/reward/termination descriptor the worker interprets
   # generically. Workers fall back to their baked tables only when this
   # field is absent (older hubs).
-  defp env_spec(ctx) do
+  def env_spec(ctx) do
     cfg = ctx.cfg
     {lo, hi} = cfg.action_range
 
@@ -437,9 +457,10 @@ defmodule Synthex.Gym.Mujoco do
   (HTTP, Python subprocess, etc.).
   """
   @spec collect_states([Synthex.Core.PredProg.predicate()], map(), [non_neg_integer()]) ::
-          {[list()], non_neg_integer()}
+          {[list()], non_neg_integer(), [map()]}
   def collect_states(preds, ctx, seeds \\ Enum.to_list(0..39)) do
     serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
+    want_sim_state = Map.get(ctx, :fitness_scorer) == :successor
 
     request = %{
       "cmd" => "collect_states",
@@ -448,11 +469,12 @@ defmodule Synthex.Gym.Mujoco do
       "bits_per_dim" => ctx.bits_per_dim,
       "bit_predicates" => serialized_preds,
       "seeds" => seeds,
-      "max_steps" => ctx.max_steps
+      "max_steps" => ctx.max_steps,
+      "want_sim_state" => want_sim_state
     }
 
     result = call_scorer!(request, ctx)
-    {result["states"], result["n_landings"]}
+    {result["states"], result["n_landings"], Map.get(result, "snapshots", [])}
   end
 
   @doc """
@@ -693,7 +715,7 @@ defmodule Synthex.Gym.Mujoco do
       Enum.reduce(1..ctx.cegar_rounds, bit_preds, fn cegar_iter, preds ->
         IO.puts("\n  CEGAR Round #{cegar_iter}/#{ctx.cegar_rounds}")
 
-        {states, _n_succ} = collect_states(preds, ctx)
+        {states, _n_succ, _snapshots} = collect_states(preds, ctx)
         IO.puts("  #{length(states)} states collected")
 
         features = build_features(states, ctx)
@@ -782,6 +804,29 @@ defmodule Synthex.Gym.Mujoco do
     case Map.get(ctx, :proposer, :enumerate) do
       :ga -> Synthex.Gym.GaProposer.optimize_bit(preds, bit_idx, features, ctx, seeds)
       _ -> enumerate_optimize_bit(preds, bit_idx, features, ctx, seeds)
+    end
+    |> maybe_episode_verify_commit(preds, bit_idx, seeds, ctx)
+  end
+
+  # Successor fitness ranks by coinductive advantage; the commit gate
+  # still requires a same-seed episode improvement. Re-measure the
+  # successor winner (and baseline) on episode return before returning.
+  defp maybe_episode_verify_commit(nil, _preds, _bit_idx, _seeds, _ctx), do: nil
+
+  defp maybe_episode_verify_commit({pred, _succ_reward, baseline}, preds, bit_idx, seeds, ctx) do
+    case Map.get(ctx, :fitness_scorer, :episode) do
+      :successor ->
+        {ep_reward, ep_baseline} =
+          Synthex.Gym.SuccessorScorer.episode_score_winner(pred, preds, bit_idx, seeds, ctx)
+
+        if ep_reward > ep_baseline do
+          {pred, ep_reward, ep_baseline}
+        else
+          nil
+        end
+
+      _ ->
+        {pred, _succ_reward, baseline}
     end
   end
 
@@ -888,7 +933,38 @@ defmodule Synthex.Gym.Mujoco do
     score_bit_candidates(candidates, preds, target_bit, seeds, ctx)
   end
 
-  defp score_bit_candidates(candidates, preds, target_bit, seeds, ctx) do
+  @doc false
+  def invoke_scorer!(request, ctx), do: call_scorer!(request, ctx)
+
+  def score_bit_candidates(candidates, preds, target_bit, seeds, ctx) do
+    case Map.get(ctx, :fitness_scorer, :episode) do
+      :successor ->
+        Synthex.Gym.SuccessorScorer.score_bit_candidates(
+          candidates,
+          preds,
+          target_bit,
+          seeds,
+          ctx
+        )
+
+      _ ->
+        score_bit_candidates_episode(candidates, preds, target_bit, seeds, ctx)
+    end
+  end
+
+  @doc """
+  Episode-return scoring for one bit's candidate pool (the historical hub
+  objective). Used directly when `fitness_scorer` is `:episode`, and as
+  Phase 2 validation when `fitness_scorer` is `:successor`.
+  """
+  @spec score_bit_candidates_episode(
+          [Synthex.Core.PredProg.predicate()],
+          [Synthex.Core.PredProg.predicate()],
+          non_neg_integer(),
+          [non_neg_integer()],
+          map()
+        ) :: {[{non_neg_integer(), number(), number()}], float()}
+  def score_bit_candidates_episode(candidates, preds, target_bit, seeds, ctx) do
     serialized_candidates = Enum.map(candidates, &GymOracle.serialize_pred/1)
     serialized_preds = Enum.map(preds, &GymOracle.serialize_pred/1)
 
