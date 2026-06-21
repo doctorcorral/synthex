@@ -2,17 +2,22 @@ defmodule Synthex.Gym.SuccessorScorer do
   @moduledoc """
   CoinductiveHomomorphism fitness for continuous bit-policy synthesis.
 
-  Phase 1 scores every candidate by successor-value dominance:
+  Phase 1 scores every candidate by successor-trace dominance (Agda
+  `SuccessorDeterministicMDP`):
 
-      A(s) = V(next(s, a1)) - V(next(s, a0))
+      successor-trace s a k = value-trace (next s a) k
+      value-trace s k       = [solve(s,0), ..., solve(s,k-1)]
 
-  where `a0`/`a1` differ only in `target_bit`. The value-maximizing
-  predicate maximizes `Sum_s A(s) * p(s)`. Candidate scoring is pure
-  Elixir once the worker returns the per-snapshot advantage vector.
+  At each snapshot, compare the two one-bit branches (a0 vs a1) via the
+  lexicographic trace order; map to a scalar advantage for predicate
+  scoring: maximize `Sum_s A(s) * p(s)`.
+
+  Default worker mode (`successor_mode=solve`) uses memoized finite-horizon
+  `solve` over a discrete action grid. Legacy `rollout` uses truncated
+  return under the current bit-policy.
 
   Phase 2 (episode commit verification) runs in `Mujoco.do_optimize_bit/5`
-  after a successor winner is chosen, so the commit gate still sees a
-  same-seed episode baseline/improvement pair.
+  after a successor winner is chosen.
   """
 
   alias Synthex.Gym.Mujoco
@@ -109,7 +114,10 @@ defmodule Synthex.Gym.SuccessorScorer do
       "target_bit" => target_bit,
       "snapshots" => snapshots,
       "lookahead" => Map.get(ctx, :successor_lookahead, 40),
-      "max_steps" => ctx.max_steps
+      "max_steps" => ctx.max_steps,
+      "successor_mode" => successor_mode(ctx),
+      "successor_grid_levels" => Map.get(ctx, :successor_grid_levels, 3),
+      "successor_reward_ceiling" => Map.get(ctx, :successor_reward_ceiling, 1000.0)
     }
 
     result = Mujoco.invoke_scorer!(request, ctx)
@@ -119,4 +127,12 @@ defmodule Synthex.Gym.SuccessorScorer do
   defp snapshot_obs(%{"obs" => obs}) when is_list(obs), do: obs
   defp snapshot_obs(%{obs: obs}) when is_list(obs), do: obs
   defp snapshot_obs(obs) when is_list(obs), do: obs
+
+  defp successor_mode(ctx) do
+    case Map.get(ctx, :successor_mode, :solve) do
+      :rollout -> "rollout"
+      "rollout" -> "rollout"
+      _ -> "solve"
+    end
+  end
 end

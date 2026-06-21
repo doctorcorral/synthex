@@ -339,6 +339,9 @@ defmodule Synthex.Gym.Mujoco do
     # (the transport that dispatches requests to workers).
     fitness_scorer = normalize_fitness_scorer(Keyword.get(opts, :fitness_scorer, :episode))
     successor_lookahead = Keyword.get(opts, :successor_lookahead, 40)
+    successor_mode = normalize_successor_mode(Keyword.get(opts, :successor_mode, :solve))
+    successor_grid_levels = Keyword.get(opts, :successor_grid_levels, 3)
+    successor_reward_ceiling = Keyword.get(opts, :successor_reward_ceiling, 1000.0)
     succ_top_k = Keyword.get(opts, :succ_top_k, nil)
 
     # Replicate seed. 0 (default) reproduces the historical deterministic
@@ -379,6 +382,9 @@ defmodule Synthex.Gym.Mujoco do
       proposer_opts: proposer_opts,
       fitness_scorer: fitness_scorer,
       successor_lookahead: successor_lookahead,
+      successor_mode: successor_mode,
+      successor_grid_levels: successor_grid_levels,
+      successor_reward_ceiling: successor_reward_ceiling,
       succ_top_k: succ_top_k,
       run_seed: run_seed,
       scorer: scorer
@@ -399,6 +405,11 @@ defmodule Synthex.Gym.Mujoco do
   defp normalize_fitness_scorer("episode"), do: :episode
   defp normalize_fitness_scorer("successor"), do: :successor
   defp normalize_fitness_scorer(_), do: :episode
+
+  defp normalize_successor_mode(v) when v in [:solve, :rollout], do: v
+  defp normalize_successor_mode("solve"), do: :solve
+  defp normalize_successor_mode("rollout"), do: :rollout
+  defp normalize_successor_mode(_), do: :solve
 
   # Self-describing environment spec shipped to the worker in every
   # request. This is what lets a brand-new environment run on existing
